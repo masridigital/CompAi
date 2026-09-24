@@ -1,609 +1,336 @@
-# MSP Multi-Tenancy and HaloPSA Integration Plan
+# MSP/MSSP Readiness and HaloPSA Integration Plan
 
-**Date:** 2026-09-24 · **Owner:** Masri · **Branch:** `claude/great-bardeen-33qwpl`
+**Date:** 2026-09-24 · **Owner:** Masri · **Branch:** `claude/great-bardeen-33qwpl` · **Revision:** 2
 
-**Goal:** Run this fork as an MSP platform. One MSP (a "partner") manages many client organizations from one console. Partner staff get delegated access to clients, and partner-level integration connections serve all clients. Partner baselines seed new clients, and a portfolio view shows posture across all clients. HaloPSA is the system of record for clients, tickets, and billing.
+**Goal:** Make this self-hosted fork work for an MSP/MSSP that runs many client organizations. HaloPSA (hosted by Halo on Microsoft Azure) is the system of record for clients and tickets.
 
-**Principles:**
+**Hard constraint:** Keep the app structure as it is. No partner/parent model, no new product areas, and no re-architecture of tenancy, auth, or billing. Every change is additive: a new integration manifest, new tables for the Halo ticket state, small edits at named hook points, and admin tooling.
 
-1. Keep MSP code in new modules and new Prisma files. Touch core files only at named hook points. Upstream (`trycompai/comp`) ships daily, and merge cost must stay low.
-2. Reuse the existing RBAC engine. Do not build a second permission path inside client orgs.
-3. API first. Every feature is a NestJS endpoint with guards and `@RequirePermission`, per `CLAUDE.md` and the `api-endpoint-contract` skill.
-4. Send every write to an external system through an outbox with retries and idempotency.
+**Scope decisions:**
 
----
-
-## 1. Review findings
-
-### 1.1 Current state vs. MSP gap
-
-| Area | Current state (evidence) | Gap for MSP |
-|---|---|---|
-| Tenancy | Flat `Organization`. No parent, partner, or reseller concept (`packages/db/prisma/schema/organization.prisma`). | No way to group clients under an MSP. |
-| Access | Session `activeOrganizationId` plus a required `Member` row (`apps/api/src/auth/hybrid-auth.guard.ts:206-234`). The only cross-org role is platform admin (`User.role === 'admin'`), and it bypasses all permission checks (`apps/api/src/auth/permission.guard.ts:119-121`). | An MSP tech needs either god mode or a manual `Member` row in every client. Neither scales or is safe. |
-| Org creation | Next.js server action `apps/app/src/app/(app)/setup/actions/create-organization.ts` plus `initializeOrganization` (`actions/organization/lib/initialize-organization.ts:456`). | No API for provisioning. No bulk onboarding. The server action conflicts with the "migrate to API" rule in `CLAUDE.md`. |
-| Billing | One Stripe customer per org (`organization-billing.prisma`). Platform access is the manual `hasAccess` flag. SKUs are add-ons only (`packages/billing/src/sku-definitions.ts`). | No consolidated partner billing. No usage feed to a PSA. |
-| Integrations | Connections are per org (`IntegrationConnection.organizationId`). A platform-level OAuth app fallback exists (`apps/api/src/integration-platform/services/oauth-credentials.service.ts:47-75`), and the Azure manifest uses a multi-tenant Entra app (`packages/integration-platform/src/manifests/azure/index.ts:32-73`). | The MSP owns one NinjaOne, one Halo, and one multi-tenant M365 app. Today each client needs its own connection and its own credentials. |
-| PSA / RMM | ConnectWise, NinjaOne, Datto RMM, Kaseya, N-able, ServiceNow, Freshservice, Jira, and Linear exist as read-only dynamic checks (`integrations-catalog/integrations/*.json`). | No HaloPSA, Autotask, or Syncro. No outbound ticket creation anywhere in the repo. |
-| Webhooks | Inbound `POST /v1/integrations/webhooks/:providerSlug/:connectionId` with HMAC check (`controllers/webhook.controller.ts:63-213`). No manifest uses it. | Usable pattern, but not wired to any PSA. |
-| Notifications | Email only (Resend, Novu). Per-org, per-role toggles (`notification-policy.prisma`). | No Teams, Slack, or PSA channel. |
-| Portfolio view | None. The `[orgId]` layout rejects non-members. Only platform-admin tools span orgs (`apps/api/src/admin-organizations/`). | No cross-client dashboard. |
-| 2FA | `apps/api/src/auth/auth.server.ts` does not load the better-auth `twoFactor` plugin. | Partner staff with access to many tenants need enforced MFA. |
-
-### 1.2 Security findings to fix before MSP work (Phase 0)
-
-These are safe to live with in a single-company deployment. They become cross-tenant risks when one MSP operates many clients on one instance.
-
-| # | Finding | Evidence | Risk in MSP mode | Fix |
-|---|---|---|---|---|
-| S1 | Service tokens accept any org ID in `x-organization-id`. The guard only checks that the org exists. | `hybrid-auth.guard.ts:101-116` | A leaked `portal` or `trust` token reaches every tenant within that token's permission list. | Require a signed org claim (HMAC over `orgId` + timestamp, 5 min skew) per request. Keep the static token as a second factor. |
-| S2 | The DSL `code` step runs arbitrary JS in the API process. | `packages/integration-platform/src/dsl/interpreter.ts:637-638` (`new AsyncFunction('ctx','scope', code)`) | Code in a dynamic definition can read `ENCRYPTION_KEY`, `DATABASE_URL`, and every tenant's credentials. | Run `code` steps in `isolated-vm` with no `process`, a memory cap, and a timeout. Reject `code` steps in any definition that a partner writes. |
-| S3 | One `ENCRYPTION_KEY` for all tenant credentials. | `apps/api/src/integration-platform/services/credential-vault.service.ts:93` | One key leak exposes every client's M365, Halo, and RMM secrets. | Envelope encryption: one data key per partner (and per standalone org), wrapped by a KMS or Vault Transit key. Store `keyId` on each credential version. |
-| S4 | `Member` has no `@@unique([userId, organizationId])`. `Session.activeOrganizationId` has no FK. | `auth.prisma:194-244`, `auth.prisma:55-75` | Delegated access (Phase 1) creates `Member` rows automatically. Duplicates break role resolution. | Deduplicate, then add the unique constraint and the FK (`onDelete: SetNull`). |
-| S5 | Platform admin bypasses every permission check. | `permission.guard.ts:119-121` | If MSP techs get platform admin as a shortcut, they get all tenants, including tenants of other partners. | Keep platform admin for Masri platform operators only. Never grant it as an MSP tech role. |
-| S6 | No MFA enforcement. | `auth.server.ts` plugin list | Partner staff accounts are high-value targets. | Add the better-auth `twoFactor` plugin. Enforce 2FA for every `PartnerMember` in `PartnerGuard` and in the delegated-access reconciler. |
+- Billing sync is out of scope. Client billing stays in Halo, and CompAI sends no billing data.
+- White-label, partner consoles, and cross-instance tenancy are out of scope.
 
 ---
 
-## 2. Target architecture
+## 1. Why the current structure already fits one MSP
 
-```
-Partner (Masri)
- ├─ PartnerMember (techs, with partner roles)
- │     └─ delegated Member rows in each assigned client org (partnerMemberId set)
- ├─ PartnerConnection (HaloPSA, NinjaOne, M365 multi-tenant app)
- │     └─ ClientBinding (external client/tenant ID  <->  organizationId)
- ├─ PartnerTemplate (framework + policy + control + integration baseline)
- ├─ PsaTicketRule / PsaTicketLink / PsaOutboxEvent
- └─ Organization (client) x N   (Organization.partnerId)
-```
+This fork is self-hosted by Masri. The instance itself is the MSP boundary:
 
-New code locations:
-
-| Layer | Path |
+| MSP need | Existing structure that covers it |
 |---|---|
-| Prisma | `packages/db/prisma/schema/partner.prisma`, `psa.prisma` |
-| Partner RBAC | `packages/auth/src/partner-permissions.ts` |
-| PSA client library | `packages/psa/` (provider interface plus `halopsa/`) |
-| API | `apps/api/src/partners/`, `apps/api/src/psa/` |
-| Trigger tasks | `apps/api/src/trigger/partners/`, `apps/api/src/trigger/psa/` |
-| UI | `apps/app/src/app/(app)/partner/[partnerId]/...` |
+| One tenant per client | `Organization`, with every query scoped by `organizationId` |
+| MSP staff in many clients | One `User` can hold `Member` rows in many orgs (`auth.prisma`). The org switcher already exists (`apps/app/src/components/organization-switcher.tsx`). |
+| MSP owner/operator view across clients | Platform admin (`User.role === 'admin'`) plus `apps/api/src/admin-organizations/` (org list, activity, frameworks, tasks, findings, and more) |
+| MSP operators not counted as client employees | `isOrgParticipant` (`packages/auth/src/participation.ts:37`) already excludes platform admins from training, policy sign-off, device agent, and compliance counts |
+| One vendor secret shared by all clients | `IntegrationPlatformCredential` (one row per provider slug, platform-admin managed, `integration-platform.prisma:427`) |
+| Per-client integration settings | `IntegrationConnection.variables` (JSON, per org) |
+| Custom client roles | `OrganizationRole` (custom roles per org) |
+
+The gaps are narrow: MSP techs who are not platform admins, a cross-client posture view, tooling to bulk-onboard clients, and HaloPSA itself.
 
 ---
 
-## 3. Phase 0: Hardening (1.5 engineer-weeks)
+## 2. MSP/MSSP-friendly changes (no structural change)
 
-- [ ] S1: Signed org claim for service tokens. Update the portal, trust, and trigger callers. Add guard tests for a missing claim, an expired claim, and a claim for a different org.
-- [ ] S2: Move DSL `code` steps into `isolated-vm`. Add a test that reads `process.env` from a code step and expects failure.
-- [ ] S3: Add envelope encryption to `CredentialVaultService`. Write a migration script that re-encrypts existing versions (dry run by default).
-- [ ] S4: Deduplication script for `Member`, then a migration for the unique constraint and the FK.
-- [ ] S6: Add the `twoFactor` plugin. The MSP enforcement flag ships in Phase 1.
+### 2.1 MSP tech accounts (non-admin)
 
-**Exit criteria:** All new guard tests pass. The re-encryption dry run reports 0 failures on a production snapshot.
+**Problem:** Techs need access to many clients without platform-admin god mode, and they must not count as client employees.
 
----
+**Change:**
 
-## 4. Phase 1: Partner tenancy (3 engineer-weeks)
+1. Add one global user role, `msp_staff`, next to `admin` in the better-auth `admin()` plugin config (`apps/api/src/auth/auth.server.ts:521`).
+2. In `packages/auth/src/participation.ts`, exclude `msp_staff` the same way as `admin`. This is a 2-line change: `NON_PARTICIPANT_ROLES = ['admin', 'msp_staff']`.
+3. `msp_staff` gets NO platform-admin privileges. `PlatformAdminGuard` and `PermissionGuard` still check only `admin`.
+4. Techs get normal `Member` rows in each client they support. A custom role `msp_tech` (admin without `organization:delete`, `apiKey:*`, `secret:read`) is created per org at provisioning.
 
-### 4.1 Data model (`partner.prisma`)
+### 2.2 Bulk staff assignment (admin tooling)
 
-```prisma
-model Partner {
-  id              String        @id @default(dbgenerated("generate_prefixed_cuid('ptn'::text)"))
-  name            String
-  slug            String        @unique
-  logo            String?
-  primaryColor    String?
-  status          PartnerStatus @default(active)
-  maxClients      Int?
-  requireMfa      Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+Add `POST /v1/admin/organizations/:id/msp-staff` to the existing `admin-organizations` controller (`PlatformAdminGuard`, audit-logged by `AdminAuditLogInterceptor`):
 
-  members       PartnerMember[]
-  organizations Organization[]
-  templates     PartnerTemplate[]
-  connections   PartnerConnection[]
-  auditLogs     PartnerAuditLog[]
-}
+- Body: `{ userIds: string[], orgRole: string }`. The endpoint adds or reactivates the `Member` rows directly, with no invite email.
+- The companion `DELETE` deactivates the rows.
+- A script `apps/api/src/scripts/assign-msp-staff.ts` applies one staff list to all orgs (`--dry-run` by default).
 
-enum PartnerStatus {
-  active
-  suspended
-}
+### 2.3 Client posture view
 
-enum PartnerClientScope {
-  all
-  assigned
-}
+Extend the existing admin organizations table (`apps/app/src/app/(app)/[orgId]/admin/organizations/`) instead of a new console. Add these columns to `GET /v1/admin/organizations`:
 
-model PartnerMember {
-  id          String             @id @default(dbgenerated("generate_prefixed_cuid('pmb'::text)"))
-  partnerId   String
-  userId      String
-  role        String             // comma-separated: partner_owner, partner_admin, partner_tech, partner_viewer
-  clientScope PartnerClientScope @default(assigned)
-  isActive    Boolean            @default(true)
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+- Framework score, and failing integration checks
+- Overdue tasks, and open findings
+- Evidence that expires within 30 days
+- Halo client name and link
 
-  partner           Partner               @relation(fields: [partnerId], references: [id], onDelete: Cascade)
-  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clientAssignments PartnerMemberClient[]
-  delegatedMembers  Member[]
+The data comes from `ClientPostureSnapshot`, one new read-model table written nightly and after each org check run. This avoids N live queries per page load.
 
-  @@unique([partnerId, userId])
-}
+### 2.4 Client onboarding
 
-model PartnerMemberClient {
-  id              String   @id @default(dbgenerated("generate_prefixed_cuid('pmc'::text)"))
-  partnerMemberId String
-  organizationId  String
-  orgRole         String   // role(s) granted inside the client org, e.g. "admin" or a custom role name
-  createdAt       DateTime @default(now())
+Keep the existing `/setup` flow. Add one admin action: "Create org from Halo client" (Section 4.4). It calls the same org-creation logic, then binds the Halo client ID. No change to the onboarding structure.
 
-  partnerMember PartnerMember @relation(fields: [partnerMemberId], references: [id], onDelete: Cascade)
-  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+### 2.5 Security fixes that matter for many tenants
 
-  @@unique([partnerMemberId, organizationId])
-}
-
-model PartnerAuditLog {
-  id             String   @id @default(dbgenerated("generate_prefixed_cuid('pal'::text)"))
-  partnerId      String
-  userId         String
-  organizationId String?
-  action         String
-  resource       String
-  resourceId     String?
-  data           Json?
-  createdAt      DateTime @default(now())
-
-  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
-
-  @@index([partnerId, createdAt])
-}
-```
-
-Changes to existing models (additive only):
-
-- `Organization`: `partnerId String?`, `partnerAccessEnabled Boolean @default(true)`, relation to `Partner`, `@@index([partnerId])`.
-- `Member`: `partnerMemberId String?` with `onDelete: Cascade`, plus the S4 unique constraint.
-- `AuditLog`: `viaPartnerId String?` so the client audit log shows which MSP acted.
-
-### 4.2 Delegated access
-
-**Decision:** Create real `Member` rows for partner staff in each client (with `partnerMemberId` set). Do not resolve virtual members inside the guard.
-
-**Reason:** 121 non-test files in `apps/api/src` reference `memberId`, `assigneeId`, or `createdByMemberId`. Assignments, comments, evidence review, and audit logs all need a real `Member`. Virtual members would break each of those paths.
-
-`PartnerAccessService.reconcile({ partnerId, organizationId? })`:
-
-1. Compute the target set: active partner members, filtered by `clientScope` and `PartnerMemberClient`, for orgs where `partnerAccessEnabled = true` and the partner is `active`.
-2. Upsert `Member` rows with the mapped `orgRole`. Deactivate rows that are no longer in the target set. Keep the rows for history.
-3. Skip users with no 2FA when `Partner.requireMfa = true`. Log each skip to `PartnerAuditLog`.
-
-Run the reconciler on every relevant change (partner member CRUD, assignment change, client created, kill switch toggled). Also run it nightly in `apps/api/src/trigger/partners/reconcile-partner-access.ts`.
-
-Default role map (overridable per assignment):
-
-| Partner role | Default client org role |
-|---|---|
-| `partner_owner`, `partner_admin` | `admin` |
-| `partner_tech` | custom `msp_tech` role (admin without `organization:delete`, `apiKey:*`, `secret:read`) |
-| `partner_viewer` | `auditor` |
-
-**Participation:** Extend `packages/auth/src/participation.ts` (`isOrgParticipant`) so delegated members do not count as client employees. The rule matches platform admins today: no training, no policy sign-off, no device agent, no employee counts, no portal access.
-
-**Org switcher:** Group orgs by partner in `apps/app/src/components/organization-switcher.tsx`. Add search, because a partner can have 100+ clients.
-
-### 4.3 Partner RBAC
-
-`packages/auth/src/partner-permissions.ts` defines a separate `createAccessControl` statement:
-
-| Resource | Actions |
-|---|---|
-| `partner` | read, update |
-| `partnerMember` | create, read, update, delete |
-| `client` | create, read, update, archive |
-| `clientAccess` | read, update |
-| `partnerTemplate` | create, read, update, delete |
-| `partnerIntegration` | create, read, update, delete |
-| `psa` | read, update |
-| `portfolio` | read |
-
-API rules:
-
-- New `PartnerGuard` reads `:partnerId` from the route, loads an active `PartnerMember`, enforces MFA, and attaches `request.partnerRoles`.
-- New `@RequirePartnerPermission(resource, action)` decorator. `PartnerAuditLogInterceptor` logs only when that metadata is present.
-- Controller format: `@Controller({ path: 'partners/:partnerId/clients', version: '1' })`.
-- Platform admin does NOT bypass `PartnerGuard`. Masri operators join the partner as `partner_owner` like everyone else.
-
-### 4.4 Client-side controls
-
-- Client settings shows a "Managed by {Partner}" card with the delegated users.
-- The owner toggle for `partnerAccessEnabled` needs `organization:update`. Toggling it runs the reconciler right away.
-- The client audit log labels partner actions with the partner name (`viaPartnerId`).
-
-**Exit criteria:** Isolation tests pass. A `partner_tech` with `assigned` scope gets 403 on unassigned clients. Partner A gets 403 on every partner B route. The client kill switch removes access within one request.
+| # | Finding | Evidence | Fix |
+|---|---|---|---|
+| S1 | Service tokens accept any org ID in `x-organization-id` | `apps/api/src/auth/hybrid-auth.guard.ts:101-116` | Require an HMAC-signed org claim (org ID + timestamp) from the portal, trust, and trigger callers |
+| S2 | DSL `code` steps run arbitrary JS in the API process | `packages/integration-platform/src/dsl/interpreter.ts:637-638` | Run code steps in `isolated-vm` with no `process`, a memory cap, and a timeout |
+| S3 | One `ENCRYPTION_KEY` protects every client's credentials | `apps/api/src/integration-platform/services/credential-vault.service.ts:93` | Store `ENCRYPTION_KEY` in Azure Key Vault. Envelope encryption is optional later. |
+| S4 | `Member` has no `@@unique([userId, organizationId])` | `packages/db/prisma/schema/auth.prisma` | Deduplicate, then add the constraint. Bulk staff assignment depends on it. |
+| S6 | No MFA plugin | `apps/api/src/auth/auth.server.ts` | Add the better-auth `twoFactor` plugin. Enforce it for `admin` and `msp_staff`. |
 
 ---
 
-## 5. Phase 2: Provisioning, templates, portfolio (4 engineer-weeks)
+## 3. HaloPSA facts (hosted on Azure)
 
-### 5.1 Provisioning API
+Confirm field and scope names on your instance's `https://{tenant}.halopsa.com/apidoc` page before coding. Halo changes them between versions.
 
-Move `initializeOrganization` from the server action into `apps/api/src/organization/provisioning/organization-provisioning.service.ts`. Run it in one transaction. The existing `/setup` flow and the partner flow both call it, and the server action is then removed.
-
-| Endpoint | Permission |
-|---|---|
-| `POST /v1/partners/:partnerId/clients` `{ name, website, templateId, frameworkIds?, psaClientId?, inviteOwnerEmail? }` | `client:create` |
-| `POST /v1/partners/:partnerId/clients/bulk` (max 50 per call, returns a job ID) | `client:create` |
-| `GET /v1/partners/:partnerId/clients` | `client:read` |
-| `PATCH /v1/partners/:partnerId/clients/:orgId` | `client:update` |
-| `POST /v1/partners/:partnerId/clients/:orgId/archive` | `client:archive` |
-
-Behavior:
-
-- `hasAccess` comes from the partner entitlement (`Partner.status = active`). This replaces the per-org `/upgrade` paywall for partner clients.
-- When a template is applied, `onboardingCompleted = true`. The partner can choose to send the client wizard instead.
-- Archive exports the client data, then calls the existing purge service after a 30-day hold.
-
-### 5.2 Partner templates
-
-`PartnerTemplate` holds a versioned JSON `definition`, validated by zod:
-
-- `frameworkIds[]`
-- Policy overrides: MSP-branded content keyed by policy template ID
-- Custom controls and tasks
-- Default task owners by partner role
-- Integration presets: which partner connections to bind automatically
-- Notification defaults
-
-`POST /v1/partners/:partnerId/templates/:id/diff/:orgId` shows drift. A later iteration adds re-apply.
-
-### 5.3 Portfolio dashboard
-
-The read model `ClientComplianceSnapshot` (`organizationId`, `partnerId`, `capturedAt`) stores:
-
-- Framework scores (JSON), and controls passing vs. total
-- Failing checks, overdue tasks, and open findings
-- Evidence that expires within 30 days, and unpublished policies
-- Integration errors, and last activity
-
-A nightly trigger task writes the snapshot. A debounced write also runs after each org's check run completes. This avoids N live queries per page load.
-
-- `GET /v1/partners/:partnerId/portfolio` (filter, sort, paginate): `portfolio:read`
-- UI `/partner/[partnerId]`: client table, trend chart from snapshots, and click-through that switches the active org. Follow the `responsive-ui` skill (375 / 768 / 1280 / 1920).
-
-**Exit criteria:** Bulk provisioning of 25 clients from one template finishes without errors. The portfolio page loads in under 1 s for 200 clients.
-
----
-
-## 6. Phase 3: Partner-level integrations (3 engineer-weeks)
-
-### 6.1 Model
-
-- `PartnerConnection` (`ptc`) has the same shape as `IntegrationConnection`, keyed by `partnerId`. `IntegrationCredentialVersion` gets a nullable `partnerConnectionId`, with a CHECK constraint that exactly one of `connectionId` and `partnerConnectionId` is set.
-- `ClientBinding` (`pcb`): `partnerConnectionId`, `organizationId`, `externalId` (Halo `client_id`, NinjaOne org ID, Entra tenant ID), `externalName`, `variables Json`. Unique on `[partnerConnectionId, organizationId]` and on `[partnerConnectionId, externalId]`.
-
-### 6.2 Runtime
-
-- `run-org-integration-checks` resolves effective connections: the org's own connections plus the org's bound partner connections.
-- `check-context.ts` gets `ctx.binding` (`externalId`, `variables`). Partner-connection checks must filter by `ctx.binding.externalId`.
-- The runner loads only the binding for the org it runs for. A test asserts that a check for org A can never receive org B's binding.
-
-### 6.3 Providers first
-
-| Provider | Partner auth | Binding |
-|---|---|---|
-| Microsoft 365 / Entra / Intune | Masri multi-tenant Entra app, app-only Graph, client credentials per tenant (`https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token`) | Entra tenant ID, captured by a per-client admin consent link |
-| NinjaOne | One OAuth client-credentials app | NinjaOne organization ID |
-| HaloPSA | See Phase 4 | Halo `client_id` (+ `site_id` in `variables`) |
-
-Convert the dynamic `microsoft-365`, `entra-id`, and `intune` definitions to code manifests with app-only permissions and binding support. A CIPP-style GDAP + SAM token flow is a later option. Per-tenant admin consent ships first because it needs no Partner Center setup.
-
----
-
-## 7. Phase 4: HaloPSA integration (7 engineer-weeks)
-
-### 7.1 Scope and priority
-
-| Priority | Capability |
-|---|---|
-| P1 | Partner-level connection, Halo client to CompAI org mapping, bulk client onboarding from Halo |
-| P1 | Outbound tickets from compliance events: rules, deduplication, notes on repeat failures, auto-resolve |
-| P1 | Inbound webhook and hourly reconcile for two-way ticket state |
-| P2 | Evidence checks from Halo ticket data (code manifest `halopsa`) |
-| P2 | Halo client contacts to CompAI people (employee sync provider `halopsa`) |
-| P3 | Usage sync to Halo recurring invoices or contract items (quantities only) |
-| P3 | Halo asset sync to devices (only for clients without NinjaOne) |
-
-### 7.2 Halo API surface to build against
-
-Confirm scope names and field names against the instance's own `/apidoc` page before coding. They vary between Halo versions.
-
-- **App registration:** Halo > Configuration > Integrations > HaloPSA API > New application.
+- **API app:** Halo > Configuration > Integrations > Halo API > View Applications > New.
   - Authentication method: Client ID and Secret (Services).
-  - Login type: Agent. Bind it to a dedicated agent named `CompAI Integration`, so Halo audit trails show the integration clearly.
-- **Scopes (least privilege):** `read:customers read:tickets edit:tickets read:assets read:contracts read:items`. Add `edit:invoices` only for P3.
-- **Token:** `POST {halo}/auth/token`, form body `grant_type=client_credentials&client_id=…&client_secret=…&scope=…`. Hosted instances also need the `tenant` query parameter. Cache the token until 60 s before `expires_in`.
-- **Resources (base `{halo}/api`):**
-  - Reads: `GET /Client`, `/Site`, `/Users`, `/TicketType`, `/Status`, `/Team`, `/Agent`, `/Priority`, `/Asset`, `/ClientContract`, `/Item`
-  - Tickets: `GET /Tickets/{id}`, `POST /Tickets`
-  - Notes: `POST /Actions`
-- **Conventions:** POST bodies are arrays (`[{…}]`). List paging uses `pageinate=true&page_size=100&page_no=N` (Halo's spelling).
-- **Ticket fields used:** `client_id`, `site_id`, `user_id`, `summary`, `details` (HTML), `tickettype_id`, `team_id`, `agent_id`, `priority_id`, `status_id`, `category_1`, `customfields: [{ id, value }]`.
-- **Note fields used:** `ticket_id`, `note`, `outcome`, `hiddenfromuser: true`, `sendemail: false`.
-- **Webhooks:** Halo > Configuration > Integrations > Webhooks. Subscribe to ticket updates. Authenticate with a custom header that holds a per-connection secret.
+  - Login type: Agent. Bind it to a dedicated agent, `CompAI Integration`, so the Halo audit trail shows the integration by name.
+- **Scopes:** `read:customers read:tickets edit:tickets read:assets read:teams read:agents`.
+  - Add `edit:customers` only for the client custom-field push (4.3).
+  - Missing scopes can make ticket writes fail silently. The integration test checks each scope.
+- **Hosted auth:** The authorisation server URL shows in Halo > Configuration > Integrations > Halo API > API Details.
+  - Token: `POST https://{tenant}.halopsa.com/auth/token?tenant={tenant}`
+  - Form body: `grant_type=client_credentials`, `client_id`, `client_secret`, `scope`.
+  - Resource base: `https://{tenant}.halopsa.com/api`
+  - Send `Authorization: Bearer <token>`. Tokens are short-lived: cache each one until 60 s before `expires_in`.
+- **Paging:** Send `pageinate=true&page_size=100&page_no=N` (Halo's spelling). Without `pageinate=true`, Halo ignores the page size and returns the agent default (50). Responses carry `record_count`.
+- **Writes:** POST bodies are arrays (`[{…}]`).
+  - Create or update tickets: `POST /Tickets`.
+  - Add notes: `POST /Actions`.
+- **Webhooks:** Halo > Configuration > Integrations > Webhooks.
+  - Type: Standard Webhook, POST, `application/json`.
+  - Events include New Ticket Logged, Ticket Updated, and Closed.
+  - Authentication options include None, Basic, and Bearer.
+- **Azure hosting impact:**
+  1. Halo calls our webhook from Azure egress IPs that Halo does not publish. We cannot IP-allowlist it. Protect the endpoint with a bearer secret plus an unguessable connection path.
+  2. The webhook endpoint must be public. Put it behind Cloudflare (Tunnel or WAF rule on `/v1/integrations/halopsa/webhooks/*` only).
+  3. Deploy the CompAI instance in the same Azure region as the Halo tenant to keep API latency low. Halo shows the region in the tenant's hosting details.
 
-### 7.3 Package layout
+---
 
-`packages/psa/src/types.ts` defines a provider-agnostic interface, so ConnectWise and Autotask can follow later:
+## 4. HaloPSA functionality decision
 
-```ts
-export interface PsaProvider {
-  readonly slug: 'halopsa';
-  testConnection(): Promise<PsaTestResult>;
-  listClients(params: PsaPageParams): Promise<PsaPage<PsaClient>>;
-  listSites(params: { clientId: string }): Promise<PsaSite[]>;
-  listContacts(params: { clientId: string }): Promise<PsaContact[]>;
-  getTicketMeta(): Promise<PsaTicketMeta>; // types, statuses, teams, priorities, agents
-  createTicket(input: PsaTicketInput): Promise<PsaTicketRef>;
-  addNote(params: { ticketId: string; note: string; isPrivate: boolean }): Promise<void>;
-  updateStatus(params: { ticketId: string; statusId: string }): Promise<void>;
-  getTicket(params: { ticketId: string }): Promise<PsaTicket>;
-  parseWebhook(params: { headers: Record<string, string>; body: unknown }): PsaWebhookEvent | null;
-}
-```
+### 4.1 Summary
 
-`packages/psa/src/halopsa/` contains `auth.ts`, `client.ts`, `schemas.ts` (zod for every Halo response), `mappers.ts`, and `webhook.ts`. Each file stays under 300 lines.
+| Direction | Feature | Decision | Priority |
+|---|---|---|---|
+| Sync: Halo to CompAI | Client to org mapping | **Build** | P1 |
+| Sync: Halo to CompAI | Client contacts to People | **Build, off by default.** Use only for clients without Entra or Google Workspace. The org `employeeSyncProvider` field picks one source. | P2 |
+| Sync: Halo to CompAI | Assets to Devices | **Do not build.** NinjaOne and Intune are better device sources, and Halo assets usually come from the RMM anyway. | none |
+| Sync: Halo to CompAI | Agents and teams | **Build (read-only cache)** for ticket routing dropdowns | P1 |
+| Alerting: CompAI to Halo | Tickets for failing integration checks | **Build** | P1 |
+| Alerting: CompAI to Halo | Tickets for new pentest and audit findings | **Build** | P1 |
+| Alerting: CompAI to Halo | Tickets for noncompliant devices (device agent, Fleet) | **Build** | P1 |
+| Alerting: CompAI to Halo | Weekly due-items digest ticket per client | **Build** | P2 |
+| Alerting: Halo to CompAI | Ticket closed: note on the CompAI task | **Build.** It never marks a task done. The next check run decides. | P1 |
+| Reporting: Halo to CompAI | Evidence checks from Halo ticket data | **Build (4 checks)** | P2 |
+| Reporting: CompAI to Halo | Compliance score on Halo client custom fields | **Build** | P2 |
+| Reporting: CompAI to Halo | Monthly posture report PDF attached to a Halo ticket | **Build** | P3 |
+| Billing | Any billing sync | **Out of scope** | none |
 
-PSA is separate from integration-platform manifests because manifests are read-only check pipelines, and PSA needs writes, an outbox, rules, and webhooks. The P2 evidence checks still ship as a code manifest (`packages/integration-platform/src/manifests/halopsa/`) that uses the partner connection and the `ClientBinding`.
+**Reasons:**
 
-### 7.4 Data model (`psa.prisma`)
+- Halo is where techs work, so alerts must land there as tickets, not as email.
+- Halo is also where account managers report. Posture data must reach Halo custom fields, so Halo's own report builder and dashboards can use it.
+- CompAI stays the source of truth for compliance state. A Halo ticket closing is a signal, not evidence.
 
-The Halo client mapping reuses `ClientBinding` from Phase 3, so there is no separate mapping table.
+### 4.2 Alerting rules
+
+| Trigger | Ticket granularity | Default priority | Resolve behavior |
+|---|---|---|---|
+| Integration check fails | 1 ticket per check per client, with failing resources listed (first 50, then a count) | P3 (P2 if the check severity is high or critical) | Check passes: add a private note, set the configured resolved status |
+| Pentest or audit finding created | 1 ticket per finding | Mapped from finding severity: critical P1, high P2, medium P3, low P4 | Finding closed in CompAI: add a note and resolve |
+| Device noncompliant for more than 24 h | 1 ticket per device | P3 | Device compliant: add a note and resolve |
+| Weekly digest (Monday 08:00 in the client's timezone) | 1 ticket per client, only when items exist | P4 | Opened fresh each week, and the previous one is closed |
+
+Digest contents: overdue tasks, evidence that expires in 30 days, policies due for review, vendors due for review, and risks above the threshold.
+
+**Repeat failure:** add a private note to the open ticket. Do not open a new ticket.
+
+**Regression after resolve:** reopen the same ticket for 7 days. After 7 days, open a new ticket.
+
+Per-client settings live in the Halo connection's `variables`, validated by zod:
+
+- Ticket type, team, and agent
+- Priority map, and resolved status ID
+- Enabled triggers, and minimum severity
+
+Global defaults come from the platform-level connection settings. There is no new rules table.
+
+### 4.3 Reporting to Halo: custom fields
+
+Create these client-level custom fields in Halo (Configuration > Custom Objects > Custom Fields, entity Client):
+
+- `CFCompAIScore` (number)
+- `CFCompAIFrameworks` (text)
+- `CFCompAIFailingChecks` (number)
+- `CFCompAIOpenFindings` (number)
+- `CFCompAILastSync` (date)
+- `CFCompAIUrl` (text)
+
+The nightly job pushes values with `POST /Client` `[{ id, customfields: [{ name, value }] }]` after the posture snapshot runs. Halo reports and dashboards can then show compliance across all clients, next to SLA and ticket data.
+
+### 4.4 Sync: client mapping
+
+- The nightly `halopsa-sync-clients` job reads `GET /Client` (active clients only) and caches ID, name, and website.
+- A client is bound to an org by `IntegrationConnection.variables.haloClientId` (and `haloSiteId`) on the org's `halopsa` connection. There is no new mapping table.
+- Admin UI (existing admin organizations page) shows three lists: unmapped Halo clients, unmapped orgs, and auto-match suggestions (normalized name, website domain).
+- Actions per row: bind to an existing org, create an org from this Halo client, or ignore.
+
+### 4.5 Reporting from Halo: evidence checks
+
+| Check ID | Logic | Maps to |
+|---|---|---|
+| `halopsa_incident_response` | Security-incident tickets for the client in the last 90 days each have a resolution note and closed within the SLA variable. Zero incidents passes, with evidence. | `TASK_TEMPLATES.incidentResponse` |
+| `halopsa_access_review` | A recurring access-review ticket closed in the last 90 days | `TASK_TEMPLATES.accessReviewLog` |
+| `halopsa_employee_access` | Joiner and leaver tickets closed within N hours (variable) | `TASK_TEMPLATES.employeeAccess` |
+| `halopsa_change_management` | Change tickets carry an approval | New task template needed. No change-management template exists in `packages/integration-platform/src/task-mappings.ts`. Add one in the framework editor first. |
+
+The ticket type IDs for incident, access review, joiner/leaver, and change are set in the connection `variables`.
+
+---
+
+## 5. Implementation
+
+### 5.1 Credentials: one Halo secret for all clients
+
+- Store the Halo client ID and secret once in `IntegrationPlatformCredential` (`providerSlug = 'halopsa'`). Manage it through the existing `admin/integrations/credentials` endpoints (`PlatformAdminGuard`).
+- Each client org's `halopsa` `IntegrationConnection` holds only `variables` (`haloClientId`, `haloSiteId`, alert settings). It stores no secret.
+- Edit `oauth-credentials.service.ts` (or a new `halopsa-credentials.ts` beside it) so that `halopsa` uses the client-credentials grant against the platform credential.
+- Rotate the secret once in one place.
+
+### 5.2 Code layout (additive)
+
+| Path | Content |
+|---|---|
+| `packages/integration-platform/src/manifests/halopsa/` | Manifest (`auth: custom`, capabilities `checks`, `sync`), 4 checks, variables schema |
+| `packages/integration-platform/src/manifests/halopsa/client/` | `auth.ts` (token cache), `http.ts` (paging, 429 backoff), `schemas.ts` (zod for Halo responses), `tickets.ts`, `clients.ts`, `custom-fields.ts` |
+| `apps/api/src/integration-platform/halopsa/` | `halopsa-alert.service.ts` (event to outbox), `halopsa-outbox.service.ts`, `halopsa-webhook.controller.ts`, `halopsa-mapping.controller.ts` |
+| `apps/api/src/trigger/integration-platform/halopsa/` | `drain-halopsa-outbox.ts`, `halopsa-sync-clients.ts`, `halopsa-push-posture.ts`, `halopsa-weekly-digest.ts`, `halopsa-reconcile-tickets.ts` |
+| `packages/db/prisma/schema/halopsa.prisma` | 2 tables (5.3) |
+
+Register the manifest in `packages/integration-platform/src/registry/index.ts`. Keep each file under 300 lines.
+
+### 5.3 New tables
 
 ```prisma
-enum PsaTrigger {
-  integration_check_failed
-  finding_created
-  task_overdue
-  evidence_expiring
-  policy_review_due
-  vendor_review_due
-  risk_above_threshold
-  device_noncompliant
-}
-
-enum PsaResolveAction {
-  add_note
-  close
-  none
-}
-
-enum PsaRecurrenceAction {
-  add_note
-  reopen
-  new_ticket
-}
-
-enum PsaInboundCloseAction {
-  none
-  comment_on_task
-  mark_task_in_review
-}
-
-model PsaTicketRule {
-  id                  String                @id @default(dbgenerated("generate_prefixed_cuid('ptr'::text)"))
-  partnerId           String
-  partnerConnectionId String
-  organizationId      String?               // null = all bound clients
-  name                String
-  isEnabled           Boolean               @default(true)
-  trigger             PsaTrigger
-  filter              Json                  // zod: minSeverity, frameworkIds, providerSlugs, taskTemplateIds, riskScoreMin
-  ticketTypeId        String
-  teamId              String?
-  agentId             String?
-  priorityId          String?
-  resolvedStatusId    String?
-  summaryTemplate     String
-  detailsTemplate     String
-  onResolve           PsaResolveAction      @default(add_note)
-  onRecurrence        PsaRecurrenceAction   @default(add_note)
-  inboundCloseAction  PsaInboundCloseAction @default(comment_on_task)
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
-
-  @@index([partnerId, trigger])
-}
-
-enum PsaLinkState {
+enum HaloTicketLinkState {
   pending_create
   open
   resolved
   closed_externally
 }
 
-model PsaTicketLink {
-  id                  String       @id @default(dbgenerated("generate_prefixed_cuid('ptl'::text)"))
-  partnerConnectionId String
-  organizationId      String
-  ruleId              String
-  entityType          String       // check | finding | task | evidence | policy | vendor | risk | device
-  entityId            String
-  dedupKey            String
-  refToken            String       @unique // short token placed in the ticket summary, e.g. CAI-7Q2K
-  psaTicketId         String?
-  state               PsaLinkState @default(pending_create)
-  lastEventAt         DateTime     @default(now())
-  createdAt           DateTime     @default(now())
+model HaloTicketLink {
+  id             String              @id @default(dbgenerated("generate_prefixed_cuid('htl'::text)"))
+  organizationId String
+  connectionId   String
+  entityType     String              // check | finding | device | digest
+  entityId       String
+  dedupKey       String
+  refToken       String              @unique // e.g. CAI-7Q2K, placed in the ticket summary
+  haloTicketId   Int?
+  state          HaloTicketLinkState @default(pending_create)
+  resolvedAt     DateTime?
+  lastEventAt    DateTime            @default(now())
+  createdAt      DateTime            @default(now())
 
-  @@unique([partnerConnectionId, dedupKey])
-  @@index([organizationId])
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connection   IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, dedupKey])
   @@index([state])
 }
 
-enum PsaOutboxStatus {
+enum HaloOutboxStatus {
   pending
   processing
   done
-  failed
   dead
 }
 
-model PsaOutboxEvent {
-  id                  String          @id @default(dbgenerated("generate_prefixed_cuid('pob'::text)"))
-  partnerConnectionId String
-  organizationId      String
-  linkId              String
-  kind                String          // create_ticket | add_note | update_status
-  payload             Json
-  status              PsaOutboxStatus @default(pending)
-  attempts            Int             @default(0)
-  nextAttemptAt       DateTime        @default(now())
-  lastError           String?
-  createdAt           DateTime        @default(now())
+model HaloOutboxEvent {
+  id             String           @id @default(dbgenerated("generate_prefixed_cuid('hob'::text)"))
+  organizationId String
+  linkId         String
+  kind           String           // create_ticket | add_note | set_status | reopen | push_custom_fields
+  payload        Json
+  status         HaloOutboxStatus @default(pending)
+  attempts       Int              @default(0)
+  nextAttemptAt  DateTime         @default(now())
+  lastError      String?
+  createdAt      DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([status, nextAttemptAt])
 }
 ```
 
-**Dedup granularity:** One ticket per check per client (`integration_check_failed:{orgId}:{checkId}`), with the failing resources listed in the details. One ticket per finding for pentest and audit findings. This stops ticket storms when one check fails on 400 resources.
+`ClientPostureSnapshot` (Section 2.3) is the only other new table.
 
-### 7.5 Event flow
+### 5.4 Event flow
 
-1. **Hook points** (the only core-file edits):
-   - `apps/api/src/trigger/integration-platform/run-task-integration-checks.ts`, after the status transition (about lines 440-547): emit `check_failed` / `check_passed`.
-   - `apps/api/src/findings/finding-notifier.service.ts`: emit `finding_created`.
-   - The new trigger task `psa-due-date-scan` (daily, per partner timezone) emits `task_overdue`, `evidence_expiring`, `policy_review_due`, and `vendor_review_due`.
-2. **`PsaRuleEngineService`** matches the event against the partner's rules. In one transaction it upserts `PsaTicketLink` by `dedupKey` and writes a `PsaOutboxEvent`.
-3. **`drain-psa-outbox`** (trigger task, per-connection queue, concurrency 5):
-   - Retry with backoff (30 s, 2 m, 10 m, 1 h, 6 h), and honor `429` / `Retry-After`. Move the event to `dead` after 8 attempts and show it in the partner UI.
-   - `create_ticket` writes `psaTicketId` and sets `state = open`.
-   - After an ambiguous timeout, search the client's tickets for the `refToken` before a retry. This prevents duplicate tickets.
-4. **Check passes again:** run the rule's `onResolve` action (default: private note "Resolved by automated check at {time}").
-5. **Inbound:** `POST /v1/psa/halopsa/webhooks/:partnerConnectionId` (`@Public()`).
-   - Compare the header secret in constant time, and drop replays by body hash for 24 h in `packages/kv`.
-   - Map the ticket to its link, set `closed_externally`, and run `inboundCloseAction`.
-6. **`reconcile-psa-tickets`** (hourly) polls the status of open links, because webhooks are best effort.
+1. **Hook points** (the only edits to existing files):
+   - `apps/api/src/trigger/integration-platform/run-task-integration-checks.ts`, after the task status transition (about lines 440-547): call `haloAlertService.onCheckResult()`.
+   - `apps/api/src/findings/finding-notifier.service.ts`: call `onFindingCreated()` and `onFindingClosed()`.
+   - Device compliance evaluation (device agent and Fleet policy result writers): call `onDeviceCompliance()`.
+2. **`HaloAlertService`** loads the org's `halopsa` connection. It exits when the connection is missing or the trigger is off. Then, in one transaction, it upserts `HaloTicketLink` by `dedupKey` and writes a `HaloOutboxEvent`.
+3. **`drain-halopsa-outbox`** (Trigger.dev queue, concurrency 5):
+   - Retry with backoff (30 s, 2 m, 10 m, 1 h, 6 h) and honor `429`. After 8 attempts the event goes `dead` and shows on the admin page with a Retry button.
+   - After an ambiguous timeout on `create_ticket`, search the client's open tickets for `refToken` before a retry. This prevents duplicate tickets.
+4. **Webhook:** `POST /v1/integrations/halopsa/webhooks/:connectionToken` (`@Public()`).
+   - Check the bearer secret in constant time, and drop replays by body hash for 24 h (`packages/kv`).
+   - On Closed: set the link to `closed_externally` and add a comment on the linked CompAI task: "Halo ticket #{id} closed by {agent}: {resolution}".
+5. **`halopsa-reconcile-tickets`** (hourly) polls open links, because webhooks are best effort.
 
-**Inbound close never marks a task done.** A closed ticket does not prove that the control passes. The next check run decides the task status.
+### 5.5 Ticket content
 
-### 7.6 Ticket content
-
-- Summary: `[CompAI] {client} | {check or finding name} failing ({n} resources) [{refToken}]`
+- Summary: `[CompAI] {check or finding} failing ({n} resources) [{refToken}]`
 - Details (HTML):
-  - Affected frameworks and controls
-  - Failing resources table (first 50, then a count)
+  - Client and frameworks affected
+  - Failing resources table
   - Remediation text from `IntegrationCheckResult`
   - Deep link to the CompAI task
-- Pass all content through `apps/api/src/utils/redact-secrets.ts` before it enters the outbox.
-
-### 7.7 Connection, mapping, and onboarding UI (partner console)
-
-1. Connect form with Halo URL, tenant (hosted only), client ID, client secret, and scopes. The secret is write-only and no endpoint returns it.
-2. Test the connection, then load ticket metadata into the rule editor dropdowns.
-3. Import Halo clients (skip inactive clients) into a mapping table with auto-match on normalized name and website domain.
-4. For each row, pick one action: map to an existing org, create a new org from a template (bulk provisioning API), or ignore.
-5. The nightly `sync-psa-clients` job flags new Halo clients that have no mapping.
-
-Endpoints (all `@RequirePartnerPermission('psa', …)`):
-
-- `POST/GET/PATCH /v1/partners/:partnerId/psa/connections`
-- `POST /v1/partners/:partnerId/psa/connections/:id/test`
-- `GET /v1/partners/:partnerId/psa/connections/:id/clients`
-- `PUT /v1/partners/:partnerId/psa/connections/:id/bindings`
-- CRUD `/v1/partners/:partnerId/psa/rules`
-- `GET /v1/partners/:partnerId/psa/links`
-- `POST /v1/partners/:partnerId/psa/outbox/:id/retry`
-
-### 7.8 Halo evidence checks (P2)
-
-| Check | Logic | Task template |
-|---|---|---|
-| `halopsa_incident_response` | Security incident tickets (ticket type set in a variable) for the bound client in the last 90 days: each has a resolution note and closed within the SLA variable. Zero incidents passes, with evidence. | `TASK_TEMPLATES.incidentResponse` |
-| `halopsa_access_review` | A recurring access review ticket closed in the last quarter | `TASK_TEMPLATES.accessReviewLog` |
-| `halopsa_employee_access` | Joiner and leaver tickets closed within N hours | `TASK_TEMPLATES.employeeAccess` |
-| `halopsa_change_management` | Change tickets have an approval recorded | New task template needed. No change-management template exists in `packages/integration-platform/src/task-mappings.ts`. Add one in the framework editor first. |
-
-### 7.9 Billing sync (P3)
-
-- Monthly quantities per client: active frameworks, employees in scope, devices, and pentest runs.
-- `PsaBillingItemMapping(partnerConnectionId, metric, psaItemId)` maps each metric to a Halo item.
-- CompAI sends quantities only. Prices and the 65% gross-margin guardrail live in Halo items. No price exists in code or config.
+- Ticket fields set: `client_id`, `site_id`, `tickettype_id`, `team_id`, `agent_id`, `priority_id`.
+- Pass all text through `apps/api/src/utils/redact-secrets.ts` before it enters the outbox.
 
 ---
 
-## 8. Phase 5: White-label and channels (3 engineer-weeks)
+## 6. Milestones
 
-- Apply partner logo and colors to the app shell when the active org belongs to a partner.
-- Send email from the partner name, with a Resend domain per partner.
-- Use partner branding as the default trust portal branding.
-- **Custom app domain per partner:** the current cookie domain (`.trycomp.ai`) does not cover partner domains. Each custom domain needs its own cookie scope and a `trustedOrigins` entry in better-auth. Scope this separately before you commit to it.
-- **Teams and Slack channels** per partner and per client reuse the outbox pattern from 7.5.
-
----
-
-## 9. Milestones
-
-These estimates assume one engineer who knows the codebase. Real effort depends on review cycles.
+These estimates assume one engineer who knows the codebase.
 
 | # | Milestone | Weeks | Exit criteria |
 |---|---|---|---|
-| M0 | Hardening S1-S6 | 1.5 | Guard tests green, re-encryption dry run clean |
-| M1 | Partner model, delegated access, partner RBAC | 3 | Isolation suite green, kill switch works |
-| M2 | Provisioning API and templates | 2 | 25-client bulk provisioning from a template |
-| M3 | Portfolio dashboard | 2 | 200 clients load in under 1 s |
-| M4 | Partner connections and bindings (M365, NinjaOne) | 3 | One NinjaOne connection runs checks for 3 clients with correct filtering |
-| M5 | HaloPSA connect, mapping, bulk onboarding | 2 | Masri Halo clients imported and mapped |
-| M6 | HaloPSA rules, outbox, webhook, reconcile | 3 | Failing check creates 1 ticket, repeat adds a note, pass resolves; 0 duplicates under a chaos test (kill the worker mid-send) |
-| M7 | Halo evidence checks and contact sync | 2 | 3 checks mapped to tasks with evidence JSON |
-| M8 | Billing sync and white-label | 3 | Monthly quantities posted to a Halo test contract |
-| | **Total** | **21.5** | |
+| M0 | Security fixes S1-S4, S6 | 1.5 | New guard tests green |
+| M1 | `msp_staff` role, bulk staff assignment, posture columns | 1.5 | A tech sees only assigned clients and is excluded from employee counts |
+| M2 | Halo manifest, platform credential, client mapping, create-org-from-client | 1.5 | All Masri Halo clients mapped |
+| M3 | Alerting: outbox, check, finding, and device tickets, webhook, reconcile | 2.5 | Failing check opens 1 ticket, repeat adds a note, pass resolves. 0 duplicates when the worker is killed mid-send. |
+| M4 | Custom-field posture push, weekly digest, 4 evidence checks | 2 | Halo client record shows the CompAI score. Checks write evidence JSON to tasks. |
+| M5 | Monthly PDF report to Halo | 1 | PDF attached to a Halo ticket for a pilot client |
+| | **Total** | **10** | |
 
----
+## 7. Tests, rollout, rollback
 
-## 10. Testing, rollout, rollback
+**Tests** (every feature ships with tests, per `CLAUDE.md`):
 
-**Tests** (per `CLAUDE.md`, every feature ships with tests):
-
-- API (Jest): `PartnerGuard`, the reconciler, the provisioning service, the rule engine, outbox retry and dedup, and webhook auth and replay.
-- Permission tests cover `partner_admin` (write), `partner_viewer` (read-only), and an unassigned `partner_tech` (403).
-- App (Vitest): partner console components with permission-gated buttons.
-- Halo contract tests: record fixtures from a Halo trial instance, validate them with the zod schemas in `packages/psa/src/halopsa/schemas.ts`, and mock HTTP with `msw`.
+- Jest: alert service dedup, outbox retry, webhook auth and replay, credential resolution, participation for `msp_staff`, and the bulk staff endpoint (admin allowed, non-admin 403).
+- Halo contract tests: fixtures recorded from the Masri Halo tenant, validated with `schemas.ts`, with HTTP mocked by `msw`.
 
 **Rollout:**
 
-1. Gate all partner UI and routes behind the PostHog group flag `msp-partner` (through `admin-feature-flags`) and the env var `MSP_MODE_ENABLED`.
-2. Create the Masri partner. Attach existing client orgs with `apps/api/src/scripts/attach-orgs-to-partner.ts` (`--dry-run` by default, `--apply` to write).
-3. Enable ticket rules for one pilot client first. Set `onResolve = add_note` for 2 weeks before you allow `close`.
+1. Gate Halo alerting per org with the connection `variables.enabledTriggers` (empty by default).
+2. Pilot one client for 2 weeks with notes only, then enable resolve.
 
 **Rollback:**
 
-- All schema changes are additive, and `partnerId` is nullable.
-- Turn off the flag to hide partner routes and the UI.
-- `reconcile-partner-access --revoke-all` deactivates every delegated `Member`.
-- Pause the outbox with `PSA_OUTBOX_PAUSED=true`. Events stay `pending` and replay when you remove the flag.
+- All schema changes are additive.
+- Turn off alerting with `HALOPSA_OUTBOX_PAUSED=true`. Events stay `pending` and replay when you remove the flag.
+- Delete an org's `halopsa` connection to unbind that client.
 
----
+## 8. Fork and license
 
-## 11. Fork and license
-
-- **Remote:** Add `upstream` (`trycompai/comp`) and merge it weekly. List every core-file touch point in `docs/plans/msp-core-touchpoints.md`, so merge conflicts stay predictable.
-- **License:** The license is AGPL-3.0. Section 13 applies when clients use the modified platform over a network: Masri must offer them the modified source.
-
----
-
-## 12. Decisions needed from Masri
-
-| # | Decision | Recommendation |
-|---|---|---|
-| D1 | Hosting | Self-host (Docker plus self-hosted Trigger.dev v4) for data control and cost. Envelope encryption uses Vault Transit or AWS KMS. |
-| D2 | Halo instance type | Tell us hosted or on-prem. It changes the token URL, the `tenant` parameter, and webhook reachability. |
-| D3 | Ticket granularity | One ticket per check per client (7.4). |
-| D4 | Inbound Halo close | `comment_on_task` by default. Never auto-mark tasks done (7.5). |
-| D5 | Client billing | Halo recurring invoices with quantities from CompAI. Stripe only for non-MSP direct customers. |
-| D6 | M365 tenant access | Per-tenant admin consent first. GDAP/SAM (CIPP model) later. |
+- **Upstream merges:** Add `upstream` (`trycompai/comp`) and merge it weekly. The hook-point list in 5.4 is the complete set of core-file edits.
+- **License:** AGPL-3.0, Section 13. If clients use the modified platform over the network, Masri must offer them the modified source.
