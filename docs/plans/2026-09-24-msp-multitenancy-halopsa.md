@@ -1,8 +1,8 @@
 # MSP/MSSP Readiness and HaloPSA Integration Plan
 
-**Date:** 2026-09-24 · **Owner:** Masri · **Branch:** `claude/great-bardeen-33qwpl` · **Revision:** 2
+**Date:** 2026-09-24 · **Owner:** Masri · **Branch:** `claude/great-bardeen-33qwpl` · **Revision:** 3
 
-**Goal:** Make this self-hosted fork work for an MSP/MSSP that runs many client organizations. HaloPSA (hosted by Halo on Microsoft Azure) is the system of record for clients and tickets.
+**Goal:** Make this self-hosted fork work for an MSP/MSSP that runs many client organizations. HaloPSA (hosted by Halo on Microsoft Azure, custom domain `portal.masri.tech`) is the system of record for clients and tickets. CompAI runs at `compliance.masri.tech`. All email goes through Cloudflare Email Service.
 
 **Hard constraint:** Keep the app structure as it is. No partner/parent model, no new product areas, and no re-architecture of tenancy, auth, or billing. Every change is additive: a new integration manifest, new tables for the Halo ticket state, small edits at named hook points, and admin tooling.
 
@@ -65,7 +65,7 @@ The data comes from `ClientPostureSnapshot`, one new read-model table written ni
 
 ### 2.4 Client onboarding
 
-Keep the existing `/setup` flow. Add one admin action: "Create org from Halo client" (Section 4.4). It calls the same org-creation logic, then binds the Halo client ID. No change to the onboarding structure.
+Keep the existing `/setup` flow. Add one admin action: "Create org from Halo client" (Section 5.4). It calls the same org-creation logic, then binds the Halo client ID. No change to the onboarding structure.
 
 ### 2.5 Security fixes that matter for many tenants
 
@@ -79,20 +79,115 @@ Keep the existing `/setup` flow. Add one admin action: "Create org from Halo cli
 
 ---
 
-## 3. HaloPSA facts (hosted on Azure)
+## 3. Deployment: domains and email
 
-Confirm field and scope names on your instance's `https://{tenant}.halopsa.com/apidoc` page before coding. Halo changes them between versions.
+### 3.1 Host layout
+
+| Host | Service | Env var |
+|---|---|---|
+| `compliance.masri.tech` | App (`apps/app`) | `NEXT_PUBLIC_APP_URL` |
+| `api.compliance.masri.tech` | API (`apps/api`), better-auth base URL, Halo webhook target | `BASE_URL`, `NEXT_PUBLIC_BETTER_AUTH_URL` |
+| `employee.compliance.masri.tech` | Employee portal (`apps/portal`) | `NEXT_PUBLIC_PORTAL_URL` |
+| `portal.masri.tech` | HaloPSA (hosted by Halo, not ours) | `HALOPSA_BASE_URL` |
+
+The employee portal does not use `portal.compliance.masri.tech`. That name is too close to the Halo host `portal.masri.tech`, and users and techs would mix them up.
+
+### 3.2 Session cookie scope (security)
+
+- Set the cookie domain to `.compliance.masri.tech`. It covers the app, API, and employee portal.
+- **Never set it to `.masri.tech`.** The browser then sends the CompAI session cookie to `portal.masri.tech` (Halo's servers) and to every other `masri.tech` host. A compromise of any of those hosts would expose CompAI sessions for all clients.
+
+Required code changes (small, no structural change):
+
+1. `apps/api/src/auth/auth.server.ts:52-61`: `getCookieDomain()` knows only `trycomp.ai`. For `compliance.masri.tech` it returns `undefined`, so cookies become host-only on the API and the app cannot read the session. Read `AUTH_COOKIE_DOMAIN` from env first, then fall back to the current logic.
+2. `apps/api/src/auth/origin-policy.ts:7-14` and `:96-97`: the static origins and the `.endsWith('.trycomp.ai')` rule are hardcoded. Add `TRUSTED_ORIGINS` (comma list) and `TRUSTED_ORIGIN_SUFFIX` (`.compliance.masri.tech`) from env.
+3. Add tests: cookie domain from env, origin allowed for `https://compliance.masri.tech`, origin rejected for `https://portal.masri.tech`.
+
+### 3.3 DNS and edge (Cloudflare)
+
+- Proxy all three hosts through Cloudflare (orange cloud), with origin certificates and Full (strict) TLS.
+- Use a Cloudflare Tunnel to the Azure origin, so the origin has no public inbound port.
+- WAF: allow unauthenticated traffic on `api.compliance.masri.tech` only for `/api/auth/*`, `/v1/integrations/halopsa/webhooks/*`, and the other `@Public()` webhook paths. Rate-limit the webhook path.
+- Deploy the origin in the same Azure region as the Halo tenant.
+
+### 3.4 Email: Cloudflare Email Service
+
+**Decision:** Replace Resend with Cloudflare Email Service (REST API). Keep Resend as a fallback provider behind the same interface.
+
+**Facts** (Cloudflare Email Sending, public beta since 2026-04-16):
+
+- Endpoint: `POST https://api.cloudflare.com/client/v4/accounts/{account_id}/email/sending/send`, `Authorization: Bearer <token>`.
+- Token permission: `Email Sending: Edit`. Create a dedicated token with only this permission.
+- Body: `to`, `from`, `subject`, `html`, `text`, plus `cc`, `bcc`, `replyTo`, `attachments`, and `headers`.
+- Limits:
+  - 50 recipients per message (to + cc + bcc combined).
+  - 5 MiB per message, including attachments.
+  - One sending domain per subscription: the zone apex or a verified sending subdomain.
+- SMTP is also available (`smtp.mx.cloudflare.net:465`). We use REST.
+- Cloudflare has no `scheduledAt` and no batch endpoint.
+
+**Sending domain:** Verify `compliance.masri.tech` as the sending subdomain in the `masri.tech` zone. Cloudflare adds SPF, DKIM, and DMARC records. Use these addresses:
+
+- `EMAIL_FROM_SYSTEM`: `Masri Compliance <no-reply@compliance.masri.tech>`
+- `EMAIL_FROM_DEFAULT`: `Masri Compliance <notifications@compliance.masri.tech>`
+- `EMAIL_REPLY_TO`: the Masri support mailbox, so client replies land in Halo as tickets
+
+**Current Resend call sites (4):**
+
+| File | Change |
+|---|---|
+| `packages/email/lib/resend.ts:92` (`sendEmail`, used by magic link, invites, policy, digest, and training emails) | Call the transport instead of `resend.emails.send` |
+| `apps/api/src/email/resend.ts:66` | Same |
+| `apps/api/src/trigger/email/send-email.ts:100` | Same. Replace `scheduledAt` with Trigger.dev `delay` on the task trigger. |
+| `apps/api/src/trigger/email/send-batch-email.ts:70` (`resend.batch.send`) | Loop over single sends in a Trigger.dev queue (concurrency 10) |
+
+**New code:** `packages/email/lib/transport/` with these files:
+
+- `types.ts` (`EmailTransport` interface)
+- `cloudflare.ts` (REST client, zod response check, 429 backoff)
+- `resend.ts` (current logic moved here)
+- `index.ts` (picks the provider from `EMAIL_PROVIDER=cloudflare|resend`)
+
+Render React templates to HTML and text with `@react-email/render`, which is already a dependency. Resend did this step internally. Keep the `sendEmail` signature, so no template or caller changes.
+
+**Behavior rules:**
+
+- Send each email to one recipient. Emails to more than 50 recipients split into chunks.
+- Reject attachments over 4.5 MiB before send, with a clear error. Link to the file in the app instead.
+- Add `List-Unsubscribe` headers through `headers`, so the existing unsubscribe flow (`packages/email/lib/check-unsubscribe.ts`) keeps working.
+- Marketing sends (`RESEND_FROM_MARKETING`) are not used on this instance. The transport refuses `marketing: true` unless `EMAIL_ALLOW_MARKETING=true`.
+
+**Env:**
+
+- `EMAIL_PROVIDER=cloudflare`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_EMAIL_API_TOKEN`
+- `EMAIL_FROM_SYSTEM`, `EMAIL_FROM_DEFAULT`, `EMAIL_REPLY_TO`
+
+The transport also reads the old `RESEND_FROM_*` names as a fallback.
+
+**Tests:**
+
+- Cloudflare transport: request shape, 50-recipient split, attachment size guard, 429 retry, and error mapping (fetch mocked).
+- `sendEmail`: the provider switch.
+- Store the Cloudflare token in Azure Key Vault. It is never logged.
+
+---
+
+## 4. HaloPSA facts (hosted on Azure)
+
+Halo base URL: `https://portal.masri.tech` (custom domain on a Halo-hosted tenant). Confirm field and scope names on `https://portal.masri.tech/apidoc` before coding. Halo changes them between versions.
 
 - **API app:** Halo > Configuration > Integrations > Halo API > View Applications > New.
   - Authentication method: Client ID and Secret (Services).
   - Login type: Agent. Bind it to a dedicated agent, `CompAI Integration`, so the Halo audit trail shows the integration by name.
 - **Scopes:** `read:customers read:tickets edit:tickets read:assets read:teams read:agents`.
-  - Add `edit:customers` only for the client custom-field push (4.3).
+  - Add `edit:customers` only for the client custom-field push (5.3).
   - Missing scopes can make ticket writes fail silently. The integration test checks each scope.
-- **Hosted auth:** The authorisation server URL shows in Halo > Configuration > Integrations > Halo API > API Details.
-  - Token: `POST https://{tenant}.halopsa.com/auth/token?tenant={tenant}`
+- **Hosted auth:** Copy the authorisation server URL and the tenant name from Halo > Configuration > Integrations > Halo API > API Details. Do not guess them.
+  - Token: `POST https://portal.masri.tech/auth/token?tenant={tenant}`. If API Details shows a different authorisation server (for example the `*.halopsa.com` host), use that value. It goes in `HALOPSA_AUTH_URL`.
   - Form body: `grant_type=client_credentials`, `client_id`, `client_secret`, `scope`.
-  - Resource base: `https://{tenant}.halopsa.com/api`
+  - Resource base: `https://portal.masri.tech/api` (`HALOPSA_BASE_URL`)
   - Send `Authorization: Bearer <token>`. Tokens are short-lived: cache each one until 60 s before `expires_in`.
 - **Paging:** Send `pageinate=true&page_size=100&page_no=N` (Halo's spelling). Without `pageinate=true`, Halo ignores the page size and returns the agent default (50). Responses carry `record_count`.
 - **Writes:** POST bodies are arrays (`[{…}]`).
@@ -102,16 +197,18 @@ Confirm field and scope names on your instance's `https://{tenant}.halopsa.com/a
   - Type: Standard Webhook, POST, `application/json`.
   - Events include New Ticket Logged, Ticket Updated, and Closed.
   - Authentication options include None, Basic, and Bearer.
+  - Payload URL: `https://api.compliance.masri.tech/v1/integrations/halopsa/webhooks/{connectionToken}`, with Bearer authentication.
 - **Azure hosting impact:**
   1. Halo calls our webhook from Azure egress IPs that Halo does not publish. We cannot IP-allowlist it. Protect the endpoint with a bearer secret plus an unguessable connection path.
   2. The webhook endpoint must be public. Put it behind Cloudflare (Tunnel or WAF rule on `/v1/integrations/halopsa/webhooks/*` only).
   3. Deploy the CompAI instance in the same Azure region as the Halo tenant to keep API latency low. Halo shows the region in the tenant's hosting details.
+  4. Ticket and custom-field deep links use `https://compliance.masri.tech/{orgId}/...`.
 
 ---
 
-## 4. HaloPSA functionality decision
+## 5. HaloPSA functionality decision
 
-### 4.1 Summary
+### 5.1 Summary
 
 | Direction | Feature | Decision | Priority |
 |---|---|---|---|
@@ -135,7 +232,7 @@ Confirm field and scope names on your instance's `https://{tenant}.halopsa.com/a
 - Halo is also where account managers report. Posture data must reach Halo custom fields, so Halo's own report builder and dashboards can use it.
 - CompAI stays the source of truth for compliance state. A Halo ticket closing is a signal, not evidence.
 
-### 4.2 Alerting rules
+### 5.2 Alerting rules
 
 | Trigger | Ticket granularity | Default priority | Resolve behavior |
 |---|---|---|---|
@@ -158,7 +255,7 @@ Per-client settings live in the Halo connection's `variables`, validated by zod:
 
 Global defaults come from the platform-level connection settings. There is no new rules table.
 
-### 4.3 Reporting to Halo: custom fields
+### 5.3 Reporting to Halo: custom fields
 
 Create these client-level custom fields in Halo (Configuration > Custom Objects > Custom Fields, entity Client):
 
@@ -167,18 +264,18 @@ Create these client-level custom fields in Halo (Configuration > Custom Objects 
 - `CFCompAIFailingChecks` (number)
 - `CFCompAIOpenFindings` (number)
 - `CFCompAILastSync` (date)
-- `CFCompAIUrl` (text)
+- `CFCompAIUrl` (text, `https://compliance.masri.tech/{orgId}`)
 
 The nightly job pushes values with `POST /Client` `[{ id, customfields: [{ name, value }] }]` after the posture snapshot runs. Halo reports and dashboards can then show compliance across all clients, next to SLA and ticket data.
 
-### 4.4 Sync: client mapping
+### 5.4 Sync: client mapping
 
 - The nightly `halopsa-sync-clients` job reads `GET /Client` (active clients only) and caches ID, name, and website.
 - A client is bound to an org by `IntegrationConnection.variables.haloClientId` (and `haloSiteId`) on the org's `halopsa` connection. There is no new mapping table.
 - Admin UI (existing admin organizations page) shows three lists: unmapped Halo clients, unmapped orgs, and auto-match suggestions (normalized name, website domain).
 - Actions per row: bind to an existing org, create an org from this Halo client, or ignore.
 
-### 4.5 Reporting from Halo: evidence checks
+### 5.5 Reporting from Halo: evidence checks
 
 | Check ID | Logic | Maps to |
 |---|---|---|
@@ -191,16 +288,16 @@ The ticket type IDs for incident, access review, joiner/leaver, and change are s
 
 ---
 
-## 5. Implementation
+## 6. Implementation
 
-### 5.1 Credentials: one Halo secret for all clients
+### 6.1 Credentials: one Halo secret for all clients
 
 - Store the Halo client ID and secret once in `IntegrationPlatformCredential` (`providerSlug = 'halopsa'`). Manage it through the existing `admin/integrations/credentials` endpoints (`PlatformAdminGuard`).
 - Each client org's `halopsa` `IntegrationConnection` holds only `variables` (`haloClientId`, `haloSiteId`, alert settings). It stores no secret.
 - Edit `oauth-credentials.service.ts` (or a new `halopsa-credentials.ts` beside it) so that `halopsa` uses the client-credentials grant against the platform credential.
 - Rotate the secret once in one place.
 
-### 5.2 Code layout (additive)
+### 6.2 Code layout (additive)
 
 | Path | Content |
 |---|---|
@@ -208,11 +305,11 @@ The ticket type IDs for incident, access review, joiner/leaver, and change are s
 | `packages/integration-platform/src/manifests/halopsa/client/` | `auth.ts` (token cache), `http.ts` (paging, 429 backoff), `schemas.ts` (zod for Halo responses), `tickets.ts`, `clients.ts`, `custom-fields.ts` |
 | `apps/api/src/integration-platform/halopsa/` | `halopsa-alert.service.ts` (event to outbox), `halopsa-outbox.service.ts`, `halopsa-webhook.controller.ts`, `halopsa-mapping.controller.ts` |
 | `apps/api/src/trigger/integration-platform/halopsa/` | `drain-halopsa-outbox.ts`, `halopsa-sync-clients.ts`, `halopsa-push-posture.ts`, `halopsa-weekly-digest.ts`, `halopsa-reconcile-tickets.ts` |
-| `packages/db/prisma/schema/halopsa.prisma` | 2 tables (5.3) |
+| `packages/db/prisma/schema/halopsa.prisma` | 2 tables (6.3) |
 
 Register the manifest in `packages/integration-platform/src/registry/index.ts`. Keep each file under 300 lines.
 
-### 5.3 New tables
+### 6.3 New tables
 
 ```prisma
 enum HaloTicketLinkState {
@@ -270,7 +367,7 @@ model HaloOutboxEvent {
 
 `ClientPostureSnapshot` (Section 2.3) is the only other new table.
 
-### 5.4 Event flow
+### 6.4 Event flow
 
 1. **Hook points** (the only edits to existing files):
    - `apps/api/src/trigger/integration-platform/run-task-integration-checks.ts`, after the task status transition (about lines 440-547): call `haloAlertService.onCheckResult()`.
@@ -285,7 +382,7 @@ model HaloOutboxEvent {
    - On Closed: set the link to `closed_externally` and add a comment on the linked CompAI task: "Halo ticket #{id} closed by {agent}: {resolution}".
 5. **`halopsa-reconcile-tickets`** (hourly) polls open links, because webhooks are best effort.
 
-### 5.5 Ticket content
+### 6.5 Ticket content
 
 - Summary: `[CompAI] {check or finding} failing ({n} resources) [{refToken}]`
 - Details (HTML):
@@ -298,21 +395,22 @@ model HaloOutboxEvent {
 
 ---
 
-## 6. Milestones
+## 7. Milestones
 
 These estimates assume one engineer who knows the codebase.
 
 | # | Milestone | Weeks | Exit criteria |
 |---|---|---|---|
 | M0 | Security fixes S1-S4, S6 | 1.5 | New guard tests green |
+| M0.5 | Domains (cookie and origin env), Cloudflare edge, Cloudflare email transport | 1 | Login works across `compliance.`, `api.`, and `employee.compliance.masri.tech`. Magic link and invite emails arrive with SPF, DKIM, and DMARC pass. |
 | M1 | `msp_staff` role, bulk staff assignment, posture columns | 1.5 | A tech sees only assigned clients and is excluded from employee counts |
 | M2 | Halo manifest, platform credential, client mapping, create-org-from-client | 1.5 | All Masri Halo clients mapped |
 | M3 | Alerting: outbox, check, finding, and device tickets, webhook, reconcile | 2.5 | Failing check opens 1 ticket, repeat adds a note, pass resolves. 0 duplicates when the worker is killed mid-send. |
 | M4 | Custom-field posture push, weekly digest, 4 evidence checks | 2 | Halo client record shows the CompAI score. Checks write evidence JSON to tasks. |
 | M5 | Monthly PDF report to Halo | 1 | PDF attached to a Halo ticket for a pilot client |
-| | **Total** | **10** | |
+| | **Total** | **11** | |
 
-## 7. Tests, rollout, rollback
+## 8. Tests, rollout, rollback
 
 **Tests** (every feature ships with tests, per `CLAUDE.md`):
 
@@ -330,7 +428,7 @@ These estimates assume one engineer who knows the codebase.
 - Turn off alerting with `HALOPSA_OUTBOX_PAUSED=true`. Events stay `pending` and replay when you remove the flag.
 - Delete an org's `halopsa` connection to unbind that client.
 
-## 8. Fork and license
+## 9. Fork and license
 
-- **Upstream merges:** Add `upstream` (`trycompai/comp`) and merge it weekly. The hook-point list in 5.4 is the complete set of core-file edits.
+- **Upstream merges:** Add `upstream` (`trycompai/comp`) and merge it weekly. The hook-point list in 6.4 is the complete set of core-file edits.
 - **License:** AGPL-3.0, Section 13. If clients use the modified platform over the network, Masri must offer them the modified source.
