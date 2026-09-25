@@ -67,7 +67,7 @@ describe('bearerMatches', () => {
 
 describe('HaloWebhookService', () => {
   const service = new HaloWebhookService();
-  const link = { id: 'htl_1', organizationId: 'org_1', haloTicketId: 12 };
+  const link = { id: 'htl_1', organizationId: 'org_1', haloTicketId: 12, state: 'open' };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -115,6 +115,28 @@ describe('HaloWebhookService', () => {
     await expect(call()).resolves.toBe('closed');
     await expect(call()).resolves.toBe('duplicate');
     expect(handleHaloTicketClosed).toHaveBeenCalledTimes(1);
+  });
+
+  it('keys replay protection by connection, so the same body on another connection is processed', async () => {
+    await expect(call()).resolves.toBe('closed');
+    mockDb.integrationConnection.findFirst.mockResolvedValue({ id: 'icn_2', organizationId: 'org_1' });
+    await expect(call()).resolves.toBe('closed');
+    expect(handleHaloTicketClosed).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases the replay marker when processing fails so a retry is handled', async () => {
+    (handleHaloTicketClosed as jest.Mock).mockRejectedValueOnce(new Error('db down'));
+    await expect(call()).rejects.toThrow('db down');
+    await expect(call()).resolves.toBe('closed');
+    await expect(call()).resolves.toBe('duplicate');
+  });
+
+  it('ignores links we already resolved ourselves (not an external close)', async () => {
+    mockDb.haloTicketLink.findFirst.mockResolvedValue({ ...link, state: 'resolved' });
+    await expect(call()).resolves.toBe('not_open');
+    mockDb.haloTicketLink.findFirst.mockResolvedValue({ ...link, state: 'pending_create' });
+    await expect(call({ body: { id: 12, hasbeenclosed: true, n: 2 } })).resolves.toBe('not_open');
+    expect(handleHaloTicketClosed).not.toHaveBeenCalled();
   });
 
   it('skips replay protection when KV is unavailable', async () => {

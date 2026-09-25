@@ -40,7 +40,7 @@ describe('handleHaloTicketClosed', () => {
       handleHaloTicketClosed({ link: link(), ticketId: 12, resolution: 'Patched', agentName: 'Sam', now: NOW }),
     ).resolves.toBe('closed');
     expect(mockDb.haloTicketLink.updateMany).toHaveBeenCalledWith({
-      where: { id: 'htl_1', state: { not: 'closed_externally' } },
+      where: { id: 'htl_1', state: 'open' },
       data: { state: 'closed_externally', resolvedAt: NOW, lastEventAt: NOW },
     });
     expect(mockDb.comment.create).toHaveBeenCalledWith({
@@ -71,6 +71,17 @@ describe('handleHaloTicketClosed', () => {
     await handleHaloTicketClosed({ link: link({ entityType: 'finding', entityId: 'fnd_1' }), ticketId: 12, now: NOW });
     expect(mockDb.comment.create.mock.calls[0][0].data).toMatchObject({ entityType: 'finding', entityId: 'fnd_1' });
   });
+
+  it.each([['resolved'], ['closed_externally'], ['pending_create']])(
+    'does nothing for a %s link (only open links are closed externally)',
+    async (state) => {
+      await expect(
+        handleHaloTicketClosed({ link: link({ state }), ticketId: 12, now: NOW }),
+      ).resolves.toBe('not_open');
+      expect(mockDb.haloTicketLink.updateMany).not.toHaveBeenCalled();
+      expect(mockDb.comment.create).not.toHaveBeenCalled();
+    },
+  );
 
   it('is idempotent', async () => {
     mockDb.haloTicketLink.updateMany.mockResolvedValue({ count: 0 });

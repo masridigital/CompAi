@@ -23,6 +23,7 @@ export type WebhookOutcome =
   | 'duplicate'
   | 'ignored_no_ticket_id'
   | 'unknown_ticket'
+  | 'not_open'
   | 'not_closed'
   | 'already_closed'
   | 'closed'
@@ -77,20 +78,35 @@ export class HaloWebhookService {
     return connection;
   }
 
-  /** false when this exact body was already processed in the last 24 h. */
-  async rememberBody(body: unknown): Promise<boolean> {
+  replayKey({ connectionId, body }: { connectionId: string; body: unknown }): string {
+    return `halopsa:webhook:${connectionId}:${sha256Hex(JSON.stringify(body ?? null))}`;
+  }
+
+  /**
+   * Reserve the replay marker for this connection + body. false when the same
+   * body was already processed (or is being processed) in the last 24 h. The
+   * caller must `releaseBody` if processing fails so Halo's retry is handled.
+   */
+  async reserveBody(key: string): Promise<boolean> {
     const kv = getHaloKv();
     if (!kv) {
       this.logger.warn('Upstash KV not configured: HaloPSA webhook replay protection skipped');
       return true;
     }
-    const key = `halopsa:webhook:${sha256Hex(JSON.stringify(body ?? null))}`;
     try {
       const result = await kv.set(key, 1, { nx: true, ex: HALO_WEBHOOK_REPLAY_TTL_SECONDS });
       return result !== null;
     } catch (error) {
       this.logger.warn(`KV unavailable, replay protection skipped: ${String(error)}`);
       return true;
+    }
+  }
+
+  async releaseBody(key: string): Promise<void> {
+    try {
+      await getHaloKv()?.del(key);
+    } catch (error) {
+      this.logger.warn(`Could not release HaloPSA replay marker: ${String(error)}`);
     }
   }
 
@@ -105,15 +121,34 @@ export class HaloWebhookService {
   }): Promise<WebhookOutcome> {
     this.verifyBearer(authorization);
     const connection = await this.findConnectionByToken(token);
-    if (!(await this.rememberBody(body))) return 'duplicate';
+    const key = this.replayKey({ connectionId: connection.id, body });
+    if (!(await this.reserveBody(key))) return 'duplicate';
 
+    try {
+      return await this.process({ organizationId: connection.organizationId, body });
+    } catch (error) {
+      // The marker only sticks once processing succeeded, so Halo can retry.
+      await this.releaseBody(key);
+      throw error;
+    }
+  }
+
+  private async process({
+    organizationId,
+    body,
+  }: {
+    organizationId: string;
+    body: unknown;
+  }): Promise<WebhookOutcome> {
     const parsed = parseHaloWebhookBody(body);
     if (parsed.ticketId === null) return 'ignored_no_ticket_id';
 
     const link = await db.haloTicketLink.findFirst({
-      where: { organizationId: connection.organizationId, haloTicketId: parsed.ticketId },
+      where: { organizationId, haloTicketId: parsed.ticketId },
     });
     if (!link) return 'unknown_ticket';
+    // Our own auto-resolve (state resolved) is not an external close.
+    if (link.state !== 'open') return 'not_open';
 
     let { closed, resolution } = parsed;
     if (closed === null && isHaloConfigured()) {
