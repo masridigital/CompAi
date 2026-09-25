@@ -61,6 +61,7 @@ describe('HaloMappingService', () => {
       { id: 'org_b', name: 'Beta LLC', website: 'https://beta.io' },
     ]);
     mockDb.organization.findUnique.mockResolvedValue({ id: 'org_b' });
+    haloClient.getClient.mockResolvedValue({ id: 11, name: 'Beta' });
   });
 
   it('lists clients with mapping status and suggestions for unmapped ones', async () => {
@@ -111,7 +112,7 @@ describe('HaloMappingService', () => {
       providerSlug: 'halopsa',
       organizationId: 'org_b',
       authStrategy: 'custom',
-      metadata: { haloClientId: 11, haloSiteId: 3 },
+      metadata: { haloClientId: 11, haloSiteId: 3, haloClientName: 'Beta' },
     });
     expect(vault.storeApiKeyCredentials).toHaveBeenCalledWith('icn_b', { haloClientId: '11', haloSiteId: '3' });
     expect(connectionService.activateConnection).toHaveBeenCalledWith('icn_b');
@@ -120,8 +121,9 @@ describe('HaloMappingService', () => {
   it('updates an existing connection, dropping a stale site id', async () => {
     connectionService.getConnectionByProviderSlug.mockResolvedValue({
       id: 'icn_b',
-      metadata: { haloClientId: 5, haloSiteId: 9, halopsaWebhookTokenHash: 'h' },
+      metadata: { haloClientId: 5, haloSiteId: 9, haloClientName: 'Old', halopsaWebhookTokenHash: 'h' },
     });
+    haloClient.getClient.mockRejectedValue(new Error('halo down'));
     await service.bind({ haloClientId: 11, organizationId: 'org_b' });
     expect(connectionService.createConnection).not.toHaveBeenCalled();
     expect(connectionService.updateConnectionMetadata).toHaveBeenCalledWith('icn_b', {

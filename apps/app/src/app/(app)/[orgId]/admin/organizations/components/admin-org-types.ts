@@ -32,6 +32,15 @@ export interface AdminOrg {
   owner: { id: string; name: string; email: string } | null;
   /** Null until the first posture snapshot has been captured. */
   posture?: ClientPosture | null;
+  /** MSP: halopsa. Bound Halo client, null when unmapped. */
+  haloClient?: HaloClientRef | null;
+}
+
+export interface HaloClientRef {
+  id: number;
+  name: string | null;
+  /** Halo agent UI link, null when HALOPSA_BASE_URL is not set. */
+  url: string | null;
 }
 
 export interface AdminOrgsResponse {

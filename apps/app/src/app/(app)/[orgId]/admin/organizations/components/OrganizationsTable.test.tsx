@@ -116,6 +116,29 @@ describe('OrganizationsTable posture columns', () => {
     );
   });
 
+  it('shows the bound Halo client, linked to Halo, and hides it on small screens', () => {
+    renderTable([
+      {
+        ...org('Acme', posture()),
+        haloClient: { id: 42, name: 'Acme Ltd', url: 'https://portal.masri.tech/customers?clientid=42' },
+      },
+      org('Newco', null),
+    ]);
+    expect(screen.getByRole('columnheader', { name: 'Halo client' })).toHaveAttribute('data-col', 'lg');
+    expect(screen.getByRole('link', { name: 'Acme Ltd' })).toHaveAttribute(
+      'href',
+      'https://portal.masri.tech/customers?clientid=42',
+    );
+    expect(screen.getByText('#42')).toBeInTheDocument();
+    expect(screen.getByText('Not mapped')).toBeInTheDocument();
+  });
+
+  it('shows the Halo client id without a link when no URL is known', () => {
+    renderTable([{ ...org('Acme', posture()), haloClient: { id: 7, name: null, url: null } }]);
+    expect(screen.getByText('Client 7')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Client 7' })).not.toBeInTheDocument();
+  });
+
   it('sorts by name by default', () => {
     renderTable([org('Zeta', posture({ overallScore: 10 })), org('Acme', posture())]);
     expect(rowNames()[0]).toContain('Acme');

@@ -95,12 +95,15 @@ One Halo API application serves every client org. Its credential lives in the AP
 | `HALOPSA_SCOPE` | see above | Optional scope override |
 | `HALOPSA_WEBHOOK_SECRET` | long random string | Bearer secret Halo sends to the webhook |
 | `HALOPSA_OUTBOX_PAUSED` | `true` | Stops sending to Halo. Events stay pending and replay when removed. |
+| `HALOPSA_CUSTOM_FIELD_PREFIX` | `CFCompAI` | Prefix of the client custom fields the nightly posture push writes |
 
 3. **Webhook:** Halo > Configuration > Integrations > Webhooks > New.
    - Type **Standard Webhook**, method **POST**, content type **application/json**, events **Ticket Closed** (and Ticket Updated).
    - Authentication **Bearer**, token = `HALOPSA_WEBHOOK_SECRET`.
    - Payload URL: `https://api.compliance.masri.tech/v1/integrations/halopsa/webhooks/<token>`. Generate `<token>` per client connection on the admin **HaloPSA** page (or `POST /v1/integrations/halopsa/connections/:id/webhook-token`); it is shown once.
 4. **Map clients** on Admin > HaloPSA (bind to an existing org or create one), then enable triggers in each org's HaloPSA connection settings. Nothing is sent until a trigger is enabled.
+
+**Posture push:** create client custom fields `CFCompAIScore` (number), `CFCompAIFrameworks` (text), `CFCompAIFailingChecks` (number), `CFCompAIOpenFindings` (number), `CFCompAILastSync` (date) and `CFCompAIUrl` (text) in Halo > Configuration > Custom Objects > Custom Fields (entity Client), and add `edit:customers` to the API application scopes. They are updated nightly at 06:30 UTC unless the connection turns off "Push compliance posture". The monthly PDF report (trigger "Monthly posture report") runs on the 1st at 09:00 UTC.
 
 The weekly digest runs Monday 08:00 UTC for every org (no per-org timezone is stored yet). Webhook replay protection uses the Upstash KV (`UPSTASH_REDIS_REST_*`) and is skipped with a warning when it is not configured.
 

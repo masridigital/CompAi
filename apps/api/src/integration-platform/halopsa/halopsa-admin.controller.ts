@@ -83,7 +83,12 @@ export class HaloAdminController {
       ownerUserId: req.userId,
       frameworkIds: body.templateFrameworkIds,
     });
-    return this.mappingService.bind({ haloClientId, organizationId, haloSiteId: body.haloSiteId });
+    return this.mappingService.bind({
+      haloClientId,
+      organizationId,
+      haloSiteId: body.haloSiteId,
+      haloClientName: client.name,
+    });
   }
 
   @Post('connections/:id/webhook-token')

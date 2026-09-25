@@ -4,6 +4,7 @@ import { Badge, Button, TableCell, TableRow, Text } from '@trycompai/design-syst
 import { View } from '@trycompai/design-system/icons';
 import { useRouter } from 'next/navigation';
 import type { AdminOrg } from './admin-org-types';
+import { HaloClientCell } from './HaloClientCell';
 import { PostureCount, PostureScore } from './PostureCells';
 
 export function OrgRow({ org, orgId }: { org: AdminOrg; orgId: string }) {
@@ -44,6 +45,9 @@ export function OrgRow({ org, orgId }: { org: AdminOrg; orgId: string }) {
             No owner
           </Text>
         )}
+      </TableCell>
+      <TableCell data-col="lg">
+        <HaloClientCell haloClient={org.haloClient ?? null} />
       </TableCell>
       <TableCell>
         <PostureScore posture={posture} />
