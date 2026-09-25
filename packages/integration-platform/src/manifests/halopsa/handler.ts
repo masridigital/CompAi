@@ -1,44 +1,53 @@
-import type { IntegrationCredentials, IntegrationHandler } from '../../types';
-import { createHaloClient, HaloApiError, type HaloClientOptions } from './client';
-import { resolveHaloConnectionMapping } from './credentials';
+import type { IntegrationHandler } from '../../types';
+import {
+  createHaloClient,
+  HaloApiError,
+  HaloAuthError,
+  HaloConfigError,
+  type HaloClientOptions,
+} from './client';
+
+const NOT_CONFIGURED = 'HaloPSA is not configured on this server. Contact your MSP administrator.';
 
 /**
- * Test a HaloPSA connection: the server env must be configured and the mapped
- * Halo client must exist. Throws with a user-facing message on failure (the
- * connections controller surfaces `err.message`).
+ * Test HaloPSA reachability. Without a client id it only checks that the
+ * server-wide HALOPSA_* application is configured (the customer "Test
+ * connection" button has no binding to test); with one it also looks the
+ * client up. Messages are customer-safe: no env names or Halo response bodies.
  */
 export async function testHaloConnection({
-  credentials,
+  haloClientId,
   clientOptions,
 }: {
-  credentials: IntegrationCredentials;
+  haloClientId?: number;
   clientOptions?: HaloClientOptions;
-}): Promise<boolean> {
-  const mapping = resolveHaloConnectionMapping({ credentials });
-  if (!mapping.success) throw new Error(mapping.error);
-
-  // Throws HaloConfigError naming the missing HALOPSA_* variables.
-  const halo = createHaloClient(clientOptions);
+} = {}): Promise<boolean> {
+  let halo;
+  try {
+    halo = createHaloClient(clientOptions);
+  } catch (err) {
+    if (err instanceof HaloConfigError) throw new Error(NOT_CONFIGURED);
+    throw err;
+  }
+  if (haloClientId === undefined) return true;
 
   try {
-    const client = await halo.getClient(mapping.data.haloClientId);
+    const client = await halo.getClient(haloClientId);
     if (client.inactive === true) {
-      throw new Error(`Halo client ${client.id} (${client.name}) is inactive in HaloPSA.`);
+      throw new Error(`Halo client ${client.id} is inactive in HaloPSA.`);
     }
     return true;
   } catch (err) {
     if (err instanceof HaloApiError && err.status === 404) {
-      throw new Error(`Halo client ${mapping.data.haloClientId} was not found in HaloPSA.`);
+      throw new Error(`Halo client ${haloClientId} was not found in HaloPSA.`);
     }
-    if (err instanceof HaloApiError && (err.status === 401 || err.status === 403)) {
-      throw new Error(
-        `HaloPSA denied access (HTTP ${err.status}). Check the Halo API application's scopes include read:customers.`,
-      );
+    if (err instanceof HaloApiError || err instanceof HaloAuthError) {
+      throw new Error(`HaloPSA request failed (status ${err.status ?? 'unknown'})`);
     }
     throw err;
   }
 }
 
 export const halopsaHandler: IntegrationHandler = {
-  testConnection: (credentials) => testHaloConnection({ credentials }),
+  testConnection: () => testHaloConnection(),
 };

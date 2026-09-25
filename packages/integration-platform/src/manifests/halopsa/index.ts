@@ -2,7 +2,8 @@
  * HaloPSA integration.
  *
  * The Halo API application is instance-wide (HALOPSA_* env); each org's
- * connection only maps it to a Halo client. See README.md in this folder.
+ * connection is bound to a Halo client by the MSP platform admin (binding.ts).
+ * See README.md in this folder.
  */
 
 import type { IntegrationManifest } from '../../types';
@@ -12,11 +13,7 @@ import {
   employeeAccessCheck,
   incidentResponseCheck,
 } from './checks';
-import {
-  halopsaCredentialFields,
-  halopsaCredentialSchema,
-  halopsaSetupInstructions,
-} from './credentials';
+import { halopsaAuthDescription, halopsaSetupInstructions } from './credentials';
 import { halopsaHandler } from './handler';
 import { syncExcludePatternsVariable, syncHaloEmployees } from './sync';
 import { halopsaVariables } from './variables';
@@ -34,10 +31,9 @@ export const halopsaManifest: IntegrationManifest = {
   auth: {
     type: 'custom',
     config: {
-      description:
-        'Uses the server-wide Halo API application; enter this organization’s Halo client ID.',
-      credentialFields: halopsaCredentialFields,
-      validationSchema: halopsaCredentialSchema,
+      // No credential fields: the MSP platform admin binds the Halo client.
+      description: halopsaAuthDescription,
+      credentialFields: [],
       setupInstructions: halopsaSetupInstructions,
     },
   },
@@ -63,8 +59,16 @@ export const halopsaManifest: IntegrationManifest = {
 export default halopsaManifest;
 
 export * from './client';
-export { halopsaCredentialSchema, resolveHaloConnectionMapping } from './credentials';
-export type { HaloConnectionMapping } from './credentials';
+export {
+  HALO_BINDING_METADATA_KEY,
+  HALO_BINDING_RESERVED_KEYS,
+  HALO_NOT_BOUND_MESSAGE,
+  HaloBindingSchema,
+  haloMappingFromMetadata,
+  hasReservedHaloBindingKey,
+  resolveHaloBinding,
+} from './binding';
+export type { HaloBinding, HaloConnectionMapping } from './binding';
 export { testHaloConnection } from './handler';
 export {
   meetsMinSeverity,

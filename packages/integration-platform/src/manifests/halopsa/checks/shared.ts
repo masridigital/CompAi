@@ -10,7 +10,7 @@ import {
   type HaloClient,
   type HaloTicket,
 } from '../client';
-import { resolveHaloConnectionMapping, type HaloConnectionMapping } from '../credentials';
+import { haloMappingFromMetadata, HALO_NOT_BOUND_MESSAGE, type HaloConnectionMapping } from '../binding';
 import { parseHaloCheckSettings, type HaloCheckSettings } from '../settings';
 
 export const EVIDENCE_WINDOW_DAYS = 90;
@@ -41,38 +41,39 @@ export async function runHaloCheck({
   ctx: CheckContext;
   body: (run: HaloCheckRun) => Promise<void>;
 }): Promise<void> {
-  const mapping = resolveHaloConnectionMapping({
-    credentials: ctx.credentials,
-    variables: ctx.variables,
-  });
-  if (!mapping.success) {
+  // The binding is admin-written connection metadata; credentials and
+  // variables are customer-editable and never used to pick the Halo client.
+  const mapping = haloMappingFromMetadata(ctx.metadata);
+  if (!mapping) {
     ctx.fail({
-      title: 'HaloPSA connection is not mapped to a Halo client',
-      description: mapping.error,
+      title: 'HaloPSA connection is not bound to a Halo client',
+      description: HALO_NOT_BOUND_MESSAGE,
       resourceType: 'halopsa-connection',
       resourceId: ctx.connectionId,
       severity: 'medium',
-      remediation:
-        'Edit the HaloPSA connection and enter the numeric Halo client ID for this organization.',
+      remediation: 'Ask your MSP administrator to bind this organization to its HaloPSA client.',
     });
     return;
   }
 
-  const resourceId = clientResourceId(mapping.data.haloClientId);
+  const resourceId = clientResourceId(mapping.haloClientId);
   let halo: HaloClient;
   try {
     halo = createHaloClient();
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    // Env names and config details stay in server logs only.
+    console.warn('[halopsa] check setup failed', {
+      connectionId: ctx.connectionId,
+      error: err instanceof Error ? err.message : String(err),
+      missing: err instanceof HaloConfigError ? err.missing : undefined,
+    });
     ctx.fail({
       title: 'HaloPSA is not configured on this server',
-      description: message,
+      description: 'The HaloPSA integration is not configured on this server.',
       resourceType: 'halopsa-client',
       resourceId,
       severity: 'medium',
-      remediation:
-        'Set HALOPSA_BASE_URL, HALOPSA_CLIENT_ID and HALOPSA_CLIENT_SECRET (and optionally HALOPSA_AUTH_URL, HALOPSA_TENANT, HALOPSA_SCOPE) in the API and worker environment, then re-run the check.',
-      evidence: err instanceof HaloConfigError ? { missing: err.missing } : undefined,
+      remediation: 'Contact your MSP administrator to finish the HaloPSA server setup, then re-run the check.',
     });
     return;
   }
@@ -81,7 +82,7 @@ export async function runHaloCheck({
   try {
     await body({
       halo,
-      mapping: mapping.data,
+      mapping,
       settings: parseHaloCheckSettings(ctx.variables),
       now,
       windowStart: new Date(now.getTime() - EVIDENCE_WINDOW_DAYS * DAY_MS),
@@ -101,19 +102,24 @@ function reportHaloError({
   err: unknown;
   resourceId: string;
 }) {
-  const message = err instanceof Error ? err.message : String(err);
   const status =
     err instanceof HaloApiError || err instanceof HaloAuthError ? err.status : undefined;
   const denied = status === 401 || status === 403;
-  ctx.error('HaloPSA check failed', { error: message, status });
+  // Halo response bodies can echo configuration: log them server-side only.
+  console.warn('[halopsa] check request failed', {
+    connectionId: ctx.connectionId,
+    status,
+    error: err instanceof Error ? err.message : String(err),
+  });
+  ctx.error('HaloPSA check failed', { status });
   ctx.fail({
     title: denied ? 'HaloPSA denied access' : 'Could not read HaloPSA',
-    description: message,
+    description: `HaloPSA request failed (status ${status ?? 'unknown'})`,
     resourceType: 'halopsa-client',
     resourceId,
     severity: 'medium',
     remediation: denied
-      ? 'Check the Halo API application credentials and scopes (read:customers read:tickets edit:tickets read:assets read:teams read:agents) in Halo > Configuration > Integrations > Halo API.'
+      ? 'Ask your MSP administrator to check the Halo API application credentials and scopes (read:customers read:tickets edit:tickets read:assets read:teams read:agents).'
       : 'Confirm HaloPSA is reachable and re-run the check.',
   });
 }

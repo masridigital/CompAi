@@ -26,7 +26,7 @@ export interface ExecuteContext {
 }
 
 async function mappingFor(link: LinkWithConnection) {
-  const mapping = await resolveMappingForConnection(link.connection);
+  const mapping = resolveMappingForConnection(link.connection);
   if (!mapping) {
     throw new HaloPermanentError(`Connection ${link.connectionId} has no valid Halo client mapping`);
   }

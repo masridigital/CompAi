@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { resolveHaloConnectionMapping } from '../../credentials';
+import { haloMappingFromMetadata, hasReservedHaloBindingKey, resolveHaloBinding } from '../../binding';
 import { testHaloConnection } from '../../handler';
 import {
   meetsMinSeverity,
@@ -73,55 +73,61 @@ describe('parseHaloCheckSettings', () => {
   });
 });
 
-describe('resolveHaloConnectionMapping', () => {
-  it('parses numeric string ids and optional site', () => {
-    expect(
-      resolveHaloConnectionMapping({ credentials: { haloClientId: '42', haloSiteId: '' } }),
-    ).toEqual({
+describe('resolveHaloBinding', () => {
+  it('reads the admin binding from metadata', () => {
+    const metadata = { halopsaBinding: { haloClientId: 42, haloSiteId: 6, haloClientName: 'Acme' } };
+    expect(resolveHaloBinding(metadata)).toEqual({
       success: true,
-      data: { haloClientId: 42, haloSiteId: undefined },
+      data: { haloClientId: 42, haloSiteId: 6, haloClientName: 'Acme' },
     });
+    expect(haloMappingFromMetadata(metadata)).toEqual({ haloClientId: 42, haloSiteId: 6 });
   });
 
-  it('falls back to variables', () => {
-    const result = resolveHaloConnectionMapping({
-      credentials: {},
-      variables: { haloClientId: 5, haloSiteId: '6' },
-    });
-    expect(result).toEqual({ success: true, data: { haloClientId: 5, haloSiteId: 6 } });
+  it('ignores legacy top-level ids and string ids', () => {
+    expect(haloMappingFromMetadata({ haloClientId: 5 })).toBeNull();
+    expect(haloMappingFromMetadata({ halopsaBinding: { haloClientId: '5' } })).toBeNull();
+    expect(haloMappingFromMetadata(null)).toBeNull();
+    expect(resolveHaloBinding({}).success).toBe(false);
   });
 
-  it('rejects non-numeric ids', () => {
-    const result = resolveHaloConnectionMapping({ credentials: { haloClientId: 'acme' } });
-    expect(result.success).toBe(false);
+  it('flags reserved binding keys', () => {
+    expect(hasReservedHaloBindingKey({ haloClientId: 1 })).toBe(true);
+    expect(hasReservedHaloBindingKey({ halopsaBinding: {} })).toBe(true);
+    expect(hasReservedHaloBindingKey({ alert_team_id: 3 })).toBe(false);
+    expect(hasReservedHaloBindingKey(undefined)).toBe(false);
   });
 });
 
 describe('testHaloConnection', () => {
+  it('only checks server configuration without a client id', async () => {
+    expect(await testHaloConnection()).toBe(true);
+    expect(halo.requests).toHaveLength(0);
+  });
+
   it('succeeds when GET /Client/{id} returns an active client', async () => {
     halo.setRoutes({ '/api/Client/42': () => ({ id: 42, name: 'Acme' }) });
-    expect(await testHaloConnection({ credentials: { haloClientId: '42' } })).toBe(true);
+    expect(await testHaloConnection({ haloClientId: 42 })).toBe(true);
     expect(halo.requests.some((u) => u.pathname === '/api/Client/42')).toBe(true);
   });
 
   it('explains a missing client', async () => {
     halo.setRoutes({});
-    await expect(testHaloConnection({ credentials: { haloClientId: '43' } })).rejects.toThrow(
+    await expect(testHaloConnection({ haloClientId: 43 })).rejects.toThrow(
       'Halo client 43 was not found in HaloPSA.',
     );
   });
 
-  it('explains missing server env', async () => {
+  it('gives a generic message for missing server env', async () => {
     delete process.env.HALOPSA_BASE_URL;
-    await expect(testHaloConnection({ credentials: { haloClientId: '42' } })).rejects.toThrow(
-      'HALOPSA_BASE_URL',
-    );
+    const error = await testHaloConnection().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('not configured');
+    expect((error as Error).message).not.toContain('HALOPSA_');
   });
 
-  it('rejects an invalid client id before calling Halo', async () => {
-    await expect(testHaloConnection({ credentials: { haloClientId: 'abc' } })).rejects.toThrow(
-      'haloClientId',
-    );
-    expect(halo.requests).toHaveLength(0);
+  it('hides Halo response bodies', async () => {
+    halo.setRoutes({ '/api/Client/42': () => new Response('secret body', { status: 500 }) });
+    const error = await testHaloConnection({ haloClientId: 42 }).catch((e: unknown) => e);
+    expect((error as Error).message).not.toContain('secret body');
   });
 });

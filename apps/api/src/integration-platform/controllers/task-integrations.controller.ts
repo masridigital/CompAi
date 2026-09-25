@@ -19,6 +19,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { IsOptional, IsString } from 'class-validator';
+import { asRecord } from '../halopsa/halopsa-connection';
 import { HybridAuthGuard } from '../../auth/hybrid-auth.guard';
 import { PermissionGuard } from '../../auth/permission.guard';
 import { RequirePermission } from '../../auth/require-permission.decorator';
@@ -622,6 +623,8 @@ export class TaskIntegrationsController {
         connectionId,
         organizationId,
         checkId: checkDef.id, // Only run this specific check
+        // Connection metadata, e.g. the admin-written HaloPSA client binding.
+        metadata: asRecord(connection.metadata),
         onTokenRefresh,
         logger: {
           info: (msg, data) => this.logger.log(msg, data),

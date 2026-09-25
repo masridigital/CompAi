@@ -18,9 +18,31 @@ environment. It is never stored on a connection.
 | `HALOPSA_CLIENT_ID` / `HALOPSA_CLIENT_SECRET` | yes | Client ID and Secret (Services), agent login bound to `CompAI Integration`. |
 | `HALOPSA_SCOPE` | no | Default `read:customers read:tickets edit:tickets read:assets read:teams read:agents`. Add `edit:customers` for custom-field push. |
 
-Each org's `halopsa` connection uses custom auth with two fields:
-`haloClientId` (required, numeric) and `haloSiteId` (optional). "Test
-connection" calls `GET /api/Client/{haloClientId}`.
+## Client binding (platform admin only)
+
+Every Halo call uses the instance-wide application, so the Halo client an org
+is bound to decides whose Halo data it can read and write. The binding is set
+**only** by a platform admin via `POST /v1/admin/halopsa/clients/:id/bind`
+(or `.../create-org`) and stored in connection metadata under
+`halopsaBinding: { haloClientId, haloSiteId?, haloClientName?, boundAt, boundByUserId? }`
+(`binding.ts`). Checks, employee sync, alerts/outbox, posture push, the
+monthly report and the digest read the mapping from there and nowhere else:
+credentials and variables are customer-editable and are ignored.
+
+The manifest has no credential fields. The generic customer endpoints refuse
+`halopsa` (403 "managed by your MSP"): connection create, credential update,
+metadata PATCH and variables containing binding keys (`haloClientId`,
+`haloSiteId`, `haloClientName`, `halopsaBinding`). Org admins can still edit
+the declared `alert_*`, evidence-check and sync variables. The connection's
+credential row only holds a non-secret `{ managedBy: 'msp' }` marker (the check
+runners require a credential row for custom auth). "Test connection" only
+checks that the server-side HALOPSA_* app is configured.
+
+**Data migration:** connections created before this change stored the client
+id in credentials, variables or top-level metadata. Those are no longer
+trusted, so every existing `halopsa` connection shows as unbound on the admin
+HaloPSA page and its checks report "not bound" until a platform admin re-binds
+it there. Re-binding also replaces the legacy credentials with the marker.
 
 ## Client (`client/`)
 

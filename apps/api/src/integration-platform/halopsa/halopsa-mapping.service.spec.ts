@@ -4,12 +4,6 @@ const mockDb = {
 };
 
 jest.mock('@db', () => ({ db: mockDb, Prisma: {} }));
-jest.mock('./halopsa-connection', () => ({
-  asRecord: (v: unknown) => (v && typeof v === 'object' ? v : {}),
-  resolveMappingForConnection: jest.fn(async (c: { metadata: { haloClientId?: number } }) =>
-    c.metadata?.haloClientId ? { haloClientId: c.metadata.haloClientId } : null,
-  ),
-}));
 
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { HaloClient } from '@trycompai/integration-platform';
@@ -51,7 +45,7 @@ describe('HaloMappingService', () => {
         id: 'icn_a',
         organizationId: 'org_a',
         status: 'active',
-        metadata: { haloClientId: 10, halopsaWebhookTokenHash: 'x' },
+        metadata: { halopsaBinding: { haloClientId: 10 }, halopsaWebhookTokenHash: 'x' },
         variables: {},
         organization: { id: 'org_a', name: 'Alpha' },
       },
@@ -97,11 +91,13 @@ describe('HaloMappingService', () => {
     );
   });
 
-  it('creates a custom-auth connection through the vault', async () => {
+  it('creates a connection with the binding in metadata and a non-secret credential marker', async () => {
     connectionService.getConnectionByProviderSlug.mockResolvedValue(null);
     connectionService.createConnection.mockResolvedValue({ id: 'icn_b' });
 
-    await expect(service.bind({ haloClientId: 11, organizationId: 'org_b', haloSiteId: 3 })).resolves.toEqual({
+    await expect(
+      service.bind({ haloClientId: 11, organizationId: 'org_b', haloSiteId: 3, actorUserId: 'usr_admin' }),
+    ).resolves.toEqual({
       connectionId: 'icn_b',
       organizationId: 'org_b',
       haloClientId: 11,
@@ -112,24 +108,60 @@ describe('HaloMappingService', () => {
       providerSlug: 'halopsa',
       organizationId: 'org_b',
       authStrategy: 'custom',
-      metadata: { haloClientId: 11, haloSiteId: 3, haloClientName: 'Beta' },
+      metadata: {
+        halopsaBinding: {
+          haloClientId: 11,
+          haloSiteId: 3,
+          haloClientName: 'Beta',
+          boundAt: expect.any(String),
+          boundByUserId: 'usr_admin',
+        },
+      },
     });
-    expect(vault.storeApiKeyCredentials).toHaveBeenCalledWith('icn_b', { haloClientId: '11', haloSiteId: '3' });
+    // The client id is never stored in customer-editable credentials.
+    expect(vault.storeApiKeyCredentials).toHaveBeenCalledWith('icn_b', { managedBy: 'msp' });
     expect(connectionService.activateConnection).toHaveBeenCalledWith('icn_b');
   });
 
-  it('updates an existing connection, dropping a stale site id', async () => {
+  it('replaces the binding on an existing connection and drops legacy binding keys', async () => {
     connectionService.getConnectionByProviderSlug.mockResolvedValue({
       id: 'icn_b',
-      metadata: { haloClientId: 5, haloSiteId: 9, haloClientName: 'Old', halopsaWebhookTokenHash: 'h' },
+      metadata: {
+        haloClientId: 5,
+        haloSiteId: 9,
+        haloClientName: 'Old',
+        halopsaBinding: { haloClientId: 5, haloSiteId: 9 },
+        halopsaWebhookTokenHash: 'h',
+      },
     });
     haloClient.getClient.mockRejectedValue(new Error('halo down'));
     await service.bind({ haloClientId: 11, organizationId: 'org_b' });
     expect(connectionService.createConnection).not.toHaveBeenCalled();
     expect(connectionService.updateConnectionMetadata).toHaveBeenCalledWith('icn_b', {
-      haloClientId: 11,
       halopsaWebhookTokenHash: 'h',
+      halopsaBinding: { haloClientId: 11, boundAt: expect.any(String) },
     });
-    expect(vault.storeApiKeyCredentials).toHaveBeenCalledWith('icn_b', { haloClientId: '11' });
+    expect(vault.storeApiKeyCredentials).toHaveBeenCalledWith('icn_b', { managedBy: 'msp' });
+  });
+
+  it('treats legacy customer-written metadata as unbound', async () => {
+    mockDb.integrationConnection.findMany.mockResolvedValue([
+      {
+        id: 'icn_x',
+        organizationId: 'org_x',
+        status: 'active',
+        metadata: { haloClientId: 10 },
+        variables: { haloClientId: 10 },
+        organization: { id: 'org_x', name: 'Mallory' },
+      },
+    ]);
+    const [summary] = await service.listConnections();
+    expect(summary.haloClientId).toBeNull();
+    // ...so it cannot block the real owner from being bound either.
+    connectionService.getConnectionByProviderSlug.mockResolvedValue(null);
+    connectionService.createConnection.mockResolvedValue({ id: 'icn_a' });
+    await expect(service.bind({ haloClientId: 10, organizationId: 'org_b' })).resolves.toMatchObject({
+      haloClientId: 10,
+    });
   });
 });
