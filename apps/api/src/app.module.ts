@@ -58,6 +58,7 @@ import { SecretsModule } from './secrets/secrets.module';
 import { SecurityPenetrationTestsModule } from './security-penetration-tests/security-penetration-tests.module';
 import { StripeModule } from './stripe/stripe.module';
 import { AdminOrganizationsModule } from './admin-organizations/admin-organizations.module';
+import { MspOverviewModule } from './msp-overview/msp-overview.module';
 import { AdminFeatureFlagsModule } from './admin-feature-flags/admin-feature-flags.module';
 import { TimelinesModule } from './timelines/timelines.module';
 import { BackgroundChecksModule } from './background-checks/background-checks.module';
@@ -133,6 +134,7 @@ import { OffboardingChecklistModule } from './offboarding-checklist/offboarding-
     BillingModule,
     BackgroundChecksModule,
     AdminOrganizationsModule,
+    MspOverviewModule,
     AdminFeatureFlagsModule,
     TimelinesModule,
     OffboardingChecklistModule,
