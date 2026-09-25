@@ -84,7 +84,7 @@ function watchLimits({
 }): { promise: Promise<never>; stop: () => void } {
   let timer: ReturnType<typeof setInterval> | undefined;
   const startedAt = Date.now();
-  const cpuLimitNs = BigInt(cpuTimeoutMs) * 1_000_000n;
+  const cpuLimitNs = BigInt(cpuTimeoutMs * 1_000_000);
   const promise = new Promise<never>((_, reject) => {
     timer = setInterval(() => {
       if (isolate.isDisposed) return;
