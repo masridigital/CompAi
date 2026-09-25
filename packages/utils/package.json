@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./devices": "./src/devices.ts",
     "./envs": "./src/envs.ts",
-    "./format": "./src/format.ts"
+    "./format": "./src/format.ts",
+    "./service-token": "./src/service-token.ts"
   },
   "main": "src/index.ts",
   "private": true,

@@ -14,7 +14,7 @@ import { hasAppAccess } from './app-access';
 import { auth } from './auth.server';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { SKIP_ORG_CHECK_KEY } from './skip-org-check.decorator';
-import { resolveServiceByToken } from './service-token.config';
+import { authenticateServiceToken } from './service-token-auth';
 import { AuthenticatedRequest } from './types';
 
 @Injectable()
@@ -43,7 +43,7 @@ export class HybridAuthGuard implements CanActivate {
     // Try Service Token authentication (for internal services)
     const serviceToken = request.headers['x-service-token'] as string;
     if (serviceToken) {
-      return this.handleServiceTokenAuth(request, serviceToken);
+      return authenticateServiceToken({ request, token: serviceToken });
     }
 
     // Try session-based authentication (bearer token or cookies)
@@ -85,76 +85,6 @@ export class HybridAuthGuard implements CanActivate {
     request.apiKeyCreatedByMemberId = result.createdByMemberId;
     // API keys are organization-scoped; no session user/member is attached here.
     request.userRoles = null;
-
-    return true;
-  }
-
-  private async handleServiceTokenAuth(
-    request: AuthenticatedRequest,
-    token: string,
-  ): Promise<boolean> {
-    const service = resolveServiceByToken(token);
-    if (!service) {
-      throw new UnauthorizedException('Invalid service token');
-    }
-
-    const organizationId = request.headers['x-organization-id'] as string;
-    if (!organizationId) {
-      throw new UnauthorizedException(
-        'x-organization-id header is required for service token auth',
-      );
-    }
-
-    const org = await db.organization.findUnique({
-      where: { id: organizationId },
-      select: { id: true },
-    });
-    if (!org) {
-      throw new UnauthorizedException(
-        'Organization not found for the provided x-organization-id',
-      );
-    }
-
-    request.organizationId = organizationId;
-    request.authType = 'service';
-    request.isApiKey = false;
-    request.isServiceToken = true;
-    request.serviceName = service.definition.name;
-    request.isPlatformAdmin = false;
-    request.userRoles = null;
-
-    // Service tokens can pass x-user-id to act on behalf of a user
-    // Validate that the user exists and belongs to the organization
-    const actingUserId = request.headers['x-user-id'] as string;
-    if (actingUserId) {
-      const member = await db.member.findFirst({
-        // Only active memberships may act — an offboarded/deactivated user must
-        // not receive new audit / enteredById attribution. Mirrors the filters
-        // ActingUserResolver applies to its creator/owner lookups.
-        where: {
-          userId: actingUserId,
-          organizationId,
-          deactivated: false,
-          isActive: true,
-        },
-        select: { id: true, userId: true },
-      });
-      if (member) {
-        request.userId = actingUserId;
-        // Set the acting membership too, so Member-FK sinks (audit rows,
-        // enteredById, etc.) can attribute to the acting member and not just
-        // the user.
-        request.memberId = member.id;
-      } else {
-        this.logger.warn(
-          `Service token x-user-id "${actingUserId}" is not an active member of org ${organizationId}`,
-        );
-      }
-    }
-
-    this.logger.log(
-      `Service "${service.definition.name}" authenticated for org ${organizationId}`,
-    );
 
     return true;
   }

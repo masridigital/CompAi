@@ -39,6 +39,7 @@ import {
   type MitigationCitation,
 } from './select-mitigation-citations';
 import { updatePolicy } from './update-policy';
+import { buildServiceTokenHeaders } from '@trycompai/utils/service-token';
 
 type VendorForRiskAssessmentTrigger = {
   id: string;
@@ -899,10 +900,11 @@ async function triggerVendorRiskAssessmentsViaApi(params: {
       },
       {
         headers: token
-          ? {
-              'x-service-token': token,
-              'x-organization-id': organizationId,
-            }
+          ? buildServiceTokenHeaders({
+              serviceToken: token,
+              organizationId,
+              signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+            })
           : undefined,
         timeout: 15_000,
       },

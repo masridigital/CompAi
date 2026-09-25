@@ -72,6 +72,7 @@
         "@trycompai/design-system": "^1.0.32",
         "@trycompai/email": "workspace:*",
         "@trycompai/integration-platform": "workspace:*",
+        "@trycompai/utils": "workspace:*",
         "@types/canvas-confetti": "^1.9.0",
         "@types/react-syntax-highlighter": "^15.5.13",
         "@types/three": "^0.180.0",

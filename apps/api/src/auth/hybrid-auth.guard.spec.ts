@@ -54,6 +54,7 @@ const mockResolveServiceByToken = jest.fn();
 jest.mock('./service-token.config', () => ({
   resolveServiceByToken: (...args: unknown[]) =>
     mockResolveServiceByToken(...args),
+  isOrgSignatureRequired: () => false,
 }));
 
 // Mock @trycompai/auth — the app-access gate reads BUILT_IN_ROLE_PERMISSIONS to

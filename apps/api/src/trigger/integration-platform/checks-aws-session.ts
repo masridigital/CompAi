@@ -1,5 +1,6 @@
 import { logger } from '@trigger.dev/sdk';
 import type { IntegrationCredentialValues } from './ensure-valid-credentials';
+import { buildServiceTokenHeaders } from '@trycompai/utils/service-token';
 
 const RESOLVE_SESSION_TIMEOUT_MS = 30_000;
 
@@ -78,8 +79,11 @@ export async function injectAwsResolvedSession(params: {
         signal: abortController.signal,
         headers: {
           'Content-Type': 'application/json',
-          'x-service-token': serviceToken,
-          'x-organization-id': organizationId,
+          ...buildServiceTokenHeaders({
+            serviceToken,
+            organizationId,
+            signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+          }),
         },
       },
     );

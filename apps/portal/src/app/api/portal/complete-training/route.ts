@@ -1,6 +1,7 @@
 import { auth } from '@/app/lib/auth';
 import { env } from '@/env.mjs';
 import { db } from '@db/server';
+import { buildServiceTokenHeaders } from '@trycompai/utils/service-token';
 import {
   GENERAL_TRAINING_VIDEO_IDS,
   HIPAA_TRAINING_ID,
@@ -205,8 +206,11 @@ async function triggerCompletionEmail({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-service-token': serviceToken,
-      'x-organization-id': organizationId,
+      ...buildServiceTokenHeaders({
+        serviceToken,
+        organizationId,
+        signingSecret: env.SERVICE_TOKEN_SIGNING_SECRET_PORTAL,
+      }),
     },
     body: JSON.stringify({ memberId }),
     signal: AbortSignal.timeout(COMPLETION_EMAIL_TIMEOUT_MS),

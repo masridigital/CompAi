@@ -17,6 +17,7 @@ export const env = createEnv({
     APP_AUTH_URL: z.string().optional(),
     BACKEND_API_URL: z.string().optional(),
     SERVICE_TOKEN_PORTAL: z.string().optional(),
+    SERVICE_TOKEN_SIGNING_SECRET_PORTAL: z.string().optional(),
   },
 
   client: {
@@ -45,6 +46,7 @@ export const env = createEnv({
     APP_AUTH_URL: process.env.APP_AUTH_URL,
     BACKEND_API_URL: process.env.BACKEND_API_URL,
     SERVICE_TOKEN_PORTAL: process.env.SERVICE_TOKEN_PORTAL,
+    SERVICE_TOKEN_SIGNING_SECRET_PORTAL: process.env.SERVICE_TOKEN_SIGNING_SECRET_PORTAL,
   },
 
   skipValidation: !!process.env.CI || !!process.env.SKIP_ENV_VALIDATION,

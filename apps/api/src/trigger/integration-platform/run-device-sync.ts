@@ -1,4 +1,5 @@
 import { logger, tags, task } from '@trigger.dev/sdk';
+import { buildServiceTokenHeaders } from '@trycompai/utils/service-token';
 
 const API_BASE_URL = process.env.BASE_URL || 'http://localhost:3333';
 
@@ -36,8 +37,11 @@ export const runDeviceSync = task({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-service-token': process.env.SERVICE_TOKEN_TRIGGER!,
-          'x-organization-id': organizationId,
+          ...buildServiceTokenHeaders({
+            serviceToken: process.env.SERVICE_TOKEN_TRIGGER ?? '',
+            organizationId,
+            signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+          }),
         },
       });
 

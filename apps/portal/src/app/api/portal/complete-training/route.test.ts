@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   afterTasks: [] as Array<() => unknown>,
   env: {
     SERVICE_TOKEN_PORTAL: undefined as string | undefined,
+    SERVICE_TOKEN_SIGNING_SECRET_PORTAL: undefined as string | undefined,
     NEXT_PUBLIC_API_URL: 'http://api.test',
   },
 }));
@@ -341,5 +342,36 @@ describe('POST /api/portal/complete-training', () => {
     );
 
     errorSpy.mockRestore();
+  });
+
+  it('signs the org claim on the completion email request when a signing secret is set', async () => {
+    mocks.env.SERVICE_TOKEN_PORTAL = 'svc-token';
+    mocks.env.SERVICE_TOKEN_SIGNING_SECRET_PORTAL = 'portal-signing-secret';
+    mocks.getSession.mockResolvedValue({ user: { id: 'user_1' } });
+    mocks.memberFindFirst.mockResolvedValue({
+      id: 'mem_1',
+      userId: 'user_1',
+      organizationId: 'org_1',
+      role: 'employee',
+      deactivated: false,
+    });
+    mocks.frameworkInstanceFindFirst.mockResolvedValue({ id: 'frm_1' });
+    mocks.completionUpsert.mockResolvedValue({
+      id: 'etvc_hipaa',
+      videoId: 'hipaa-sat-1',
+      memberId: 'mem_1',
+      completedAt: new Date('2026-07-24T00:00:00.000Z'),
+    });
+    mocks.fetch.mockResolvedValue({ ok: true, status: 200, statusText: 'OK' });
+
+    await POST(makeRequest({ videoId: 'hipaa-sat-1', organizationId: 'org_1' }));
+    await flushAfterTasks();
+
+    const [, init] = mocks.fetch.mock.calls[0] as [string, { headers: Record<string, string> }];
+    expect(init.headers['x-service-token']).toBe('svc-token');
+    expect(init.headers['x-organization-id']).toBe('org_1');
+    expect(init.headers['x-org-timestamp']).toMatch(/^\d+$/);
+    expect(init.headers['x-org-signature']).toMatch(/^[0-9a-f]{64}$/);
+    mocks.env.SERVICE_TOKEN_SIGNING_SECRET_PORTAL = undefined;
   });
 });

@@ -1,3 +1,5 @@
+import { buildServiceTokenHeaders } from '@trycompai/utils/service-token';
+
 export interface ParsedApiResponse<T> {
   ok: boolean;
   status: number;
@@ -15,8 +17,11 @@ export function makeServiceTokenHeaders(params: {
 }): Record<string, string> {
   return {
     'Content-Type': 'application/json',
-    'x-service-token': process.env.SERVICE_TOKEN_TRIGGER ?? '',
-    'x-organization-id': params.organizationId,
+    ...buildServiceTokenHeaders({
+      serviceToken: process.env.SERVICE_TOKEN_TRIGGER ?? '',
+      organizationId: params.organizationId,
+      signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+    }),
     ...(params.userId && { 'x-user-id': params.userId }),
   };
 }

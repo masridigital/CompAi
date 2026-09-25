@@ -1,5 +1,6 @@
 import { db } from '@db';
 import { logger, tags, task } from '@trigger.dev/sdk';
+import { buildServiceTokenHeaders } from '@trycompai/utils/service-token';
 
 /**
  * Trigger task that runs a cloud security scan for a single connection.
@@ -63,8 +64,11 @@ export const runCloudSecurityScan = task({
       const apiUrl = process.env.BASE_URL || 'http://localhost:3333';
       const headers = {
         'Content-Type': 'application/json',
-        'x-service-token': process.env.SERVICE_TOKEN_TRIGGER!,
-        'x-organization-id': organizationId,
+        ...buildServiceTokenHeaders({
+          serviceToken: process.env.SERVICE_TOKEN_TRIGGER ?? '',
+          organizationId,
+          signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+        }),
       };
 
       // Auto-detect services before scanning (AWS via Cost Explorer, GCP via Service Usage API)
