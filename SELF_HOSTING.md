@@ -75,6 +75,35 @@ Templates are rendered to HTML and plain text with `@react-email/render` before 
 
 `List-Unsubscribe` / `List-Unsubscribe-Post` headers are still added to notification emails, so one-click unsubscribe keeps working.
 
+### HaloPSA (optional)
+
+One Halo API application serves every client org. Its credential lives in the API and Trigger.dev worker environment; each org's `halopsa` connection only stores the Halo client ID (and optional site ID).
+
+1. **API application:** Halo > Configuration > Integrations > Halo API > View Applications > New.
+   - Authentication method: **Client ID and Secret (Services)**.
+   - Login type: **Agent**, bound to a dedicated agent such as `CompAI Integration`.
+   - Scopes: `read:customers read:tickets edit:tickets read:assets read:teams read:agents` (add `edit:customers` for client custom fields).
+   - Copy the authorisation server URL and tenant name from Halo > Configuration > Integrations > Halo API > API Details.
+2. **Environment (API and worker):**
+
+| Variable | Example | Purpose |
+|---|---|---|
+| `HALOPSA_BASE_URL` | `https://portal.masri.tech` | Halo URL (resource base is `${HALOPSA_BASE_URL}/api`) |
+| `HALOPSA_AUTH_URL` | `https://portal.masri.tech/auth` | Authorisation server from API Details (default `${HALOPSA_BASE_URL}/auth`) |
+| `HALOPSA_TENANT` | `masri` | Hosted tenant name (sent as `?tenant=`) |
+| `HALOPSA_CLIENT_ID` / `HALOPSA_CLIENT_SECRET` | | The API application |
+| `HALOPSA_SCOPE` | see above | Optional scope override |
+| `HALOPSA_WEBHOOK_SECRET` | long random string | Bearer secret Halo sends to the webhook |
+| `HALOPSA_OUTBOX_PAUSED` | `true` | Stops sending to Halo. Events stay pending and replay when removed. |
+
+3. **Webhook:** Halo > Configuration > Integrations > Webhooks > New.
+   - Type **Standard Webhook**, method **POST**, content type **application/json**, events **Ticket Closed** (and Ticket Updated).
+   - Authentication **Bearer**, token = `HALOPSA_WEBHOOK_SECRET`.
+   - Payload URL: `https://api.compliance.masri.tech/v1/integrations/halopsa/webhooks/<token>`. Generate `<token>` per client connection on the admin **HaloPSA** page (or `POST /v1/integrations/halopsa/connections/:id/webhook-token`); it is shown once.
+4. **Map clients** on Admin > HaloPSA (bind to an existing org or create one), then enable triggers in each org's HaloPSA connection settings. Nothing is sent until a trigger is enabled.
+
+The weekly digest runs Monday 08:00 UTC for every org (no per-org timezone is stored yet). Webhook replay protection uses the Upstash KV (`UPSTASH_REDIS_REST_*`) and is skipped with a warning when it is not configured.
+
 ### Prerequisites
 
 - Docker Desktop or Docker Engine

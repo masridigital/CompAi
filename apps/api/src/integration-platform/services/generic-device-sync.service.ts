@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { db } from '@db';
 import type { SyncDevice } from '@trycompai/integration-platform';
+import { haloOnDeviceCompliance } from '../halopsa/halopsa-hooks';
 
 // ============================================================================
 // Types
@@ -208,6 +209,14 @@ export class GenericDeviceSyncService {
             where: { id: existingDevice.id },
             data: { ...updateData, memberId: member.id },
           });
+          if (device.isCompliant !== undefined) {
+            void haloOnDeviceCompliance({
+              organizationId,
+              deviceId: existingDevice.id,
+              deviceName: device.name,
+              compliant: device.isCompliant,
+            });
+          }
           result.updated++;
           result.details.push({ identifier, status: 'updated' });
         } else {

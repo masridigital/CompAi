@@ -1,0 +1,54 @@
+enum HaloTicketLinkState {
+  pending_create
+  open
+  resolved
+  closed_externally
+}
+
+/// Links a CompAI entity (failing check, finding, device, weekly digest) to the
+/// HaloPSA ticket raised for it. One row per dedupKey per organization.
+model HaloTicketLink {
+  id             String              @id @default(dbgenerated("generate_prefixed_cuid('htl'::text)"))
+  organizationId String
+  connectionId   String
+  entityType     String // check | finding | device | digest
+  entityId       String
+  dedupKey       String
+  refToken       String              @unique // e.g. CAI-7Q2K, placed in the ticket summary
+  haloTicketId   Int?
+  state          HaloTicketLinkState @default(pending_create)
+  resolvedAt     DateTime?
+  lastEventAt    DateTime            @default(now())
+  createdAt      DateTime            @default(now())
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connection   IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, dedupKey])
+  @@index([state])
+}
+
+enum HaloOutboxStatus {
+  pending
+  processing
+  done
+  dead
+}
+
+/// Transactional outbox of HaloPSA writes, drained by drain-halopsa-outbox.
+model HaloOutboxEvent {
+  id             String           @id @default(dbgenerated("generate_prefixed_cuid('hob'::text)"))
+  organizationId String
+  linkId         String
+  kind           String // create_ticket | add_note | set_status | reopen | push_custom_fields
+  payload        Json
+  status         HaloOutboxStatus @default(pending)
+  attempts       Int              @default(0)
+  nextAttemptAt  DateTime         @default(now())
+  lastError      String?
+  createdAt      DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+}

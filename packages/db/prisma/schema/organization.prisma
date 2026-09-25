@@ -132,6 +132,9 @@ model Organization {
   clientPostureSnapshots ClientPostureSnapshot[]
   // MSP: S4 session active-org FK
   activeSessions Session[] @relation("SessionActiveOrganization")
+  // MSP: halopsa
+  haloTicketLinks  HaloTicketLink[]
+  haloOutboxEvents HaloOutboxEvent[]
 
   @@index([slug])
 }
