@@ -20,6 +20,7 @@ export * from './lib/invite-member';
 export * from './lib/magic-link';
 export * from './lib/policy-notification';
 export * from './lib/resend';
+export * from './lib/transport';
 export * from './lib/training-completed';
 export * from './lib/unassigned-items-notification';
 export * from './lib/unsubscribe';

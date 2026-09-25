@@ -3,6 +3,7 @@ import { tasks } from '@trigger.dev/sdk';
 import type { ReactElement } from 'react';
 import type { EmailChannel, sendEmailTask } from '../trigger/email/send-email';
 import type { EmailAttachment } from './resend';
+import { scheduledAtToDelay } from '../trigger/email/list-unsubscribe';
 
 type TriggerEmailFlags = {
   marketing?: boolean;
@@ -33,22 +34,26 @@ export async function triggerEmail(params: {
 
     const channel = resolveChannel(params);
 
-    const handle = await tasks.trigger<typeof sendEmailTask>('send-email', {
-      to: params.to,
-      subject: params.subject,
-      html,
-      channel,
-      cc: params.cc,
-      scheduledAt: params.scheduledAt,
-      attachments: params.attachments?.map((att) => ({
-        filename: att.filename,
-        content:
-          typeof att.content === 'string'
-            ? att.content
-            : att.content.toString('base64'),
-        contentType: att.contentType,
-      })),
-    });
+    const handle = await tasks.trigger<typeof sendEmailTask>(
+      'send-email',
+      {
+        to: params.to,
+        subject: params.subject,
+        html,
+        channel,
+        cc: params.cc,
+        scheduledAt: params.scheduledAt,
+        attachments: params.attachments?.map((att) => ({
+          filename: att.filename,
+          content:
+            typeof att.content === 'string'
+              ? att.content
+              : att.content.toString('base64'),
+          contentType: att.contentType,
+        })),
+      },
+      { delay: scheduledAtToDelay(params.scheduledAt) },
+    );
 
     return { id: handle.id };
   } catch (error) {

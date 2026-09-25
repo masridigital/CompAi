@@ -1,7 +1,10 @@
+import { render, toPlainText } from '@react-email/render';
 import { randomUUID } from 'node:crypto';
-import { Resend } from 'resend';
+import { deliverEmail, getEmailTransport } from './transport';
+import { resolveFromAddress, resolveReplyTo, resolveTestRecipient } from './transport/config';
 
-export const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+// File name kept for backwards compatibility: `sendEmail` now goes through the
+// provider-agnostic transport (Cloudflare Email Service or Resend).
 
 function maskEmail(value: string): string {
   const [name = '', domain = ''] = value.toLowerCase().split('@');
@@ -45,25 +48,14 @@ export const sendEmail = async ({
   scheduledAt?: string;
   attachments?: EmailAttachment[];
 }) => {
-  if (!resend) {
-    throw new Error('Resend not initialized - missing API key');
-  }
+  const transport = getEmailTransport();
 
-  // 1) Pull each env var into its own constant
-  const fromMarketing = process.env.RESEND_FROM_MARKETING;
-  const fromSystem = process.env.RESEND_FROM_SYSTEM;
-  const fromDefault = process.env.RESEND_FROM_DEFAULT;
-  const toTest = process.env.RESEND_TO_TEST;
-  const replyMarketing = process.env.RESEND_REPLY_TO_MARKETING;
+  const fromAddress = resolveFromAddress({
+    channel: marketing ? 'marketing' : system ? 'system' : 'default',
+  });
+  const toAddress = test ? resolveTestRecipient() : to;
+  const replyTo = resolveReplyTo({ marketing });
 
-  // 2) Decide which one you need for this email
-  const fromAddress = marketing ? fromMarketing : system ? fromSystem : fromDefault;
-
-  const toAddress = test ? toTest : to;
-
-  const replyTo = marketing ? replyMarketing : undefined;
-
-  // 3) Guard against undefined
   if (!fromAddress) {
     throw new Error('Missing FROM address in environment variables');
   }
@@ -77,7 +69,7 @@ export const sendEmail = async ({
   try {
     console.info('[email] send start', {
       requestId,
-      provider: 'resend',
+      provider: transport.provider,
       from: fromAddress,
       to: maskEmailList(toAddress),
       subject,
@@ -89,43 +81,39 @@ export const sendEmail = async ({
       },
     });
 
-    const { data, error } = await resend.emails.send({
-      from: fromAddress, // now always a string
-      to: toAddress, // now always a string
-      cc,
-      replyTo,
-      subject,
-      // @ts-ignore – React node allowed by the SDK
-      react,
-      scheduledAt,
-      attachments: attachments?.map((att) => ({
-        filename: att.filename,
-        content: att.content,
-        contentType: att.contentType,
-      })),
+    const html = await render(react);
+    const result = await deliverEmail({
+      transport,
+      marketing,
+      message: {
+        from: fromAddress,
+        to: toAddress,
+        cc,
+        replyTo,
+        subject,
+        html,
+        text: toPlainText(html),
+        scheduledAt,
+        attachments,
+      },
     });
-
-    if (error) {
-      console.error('Resend API error:', error);
-      throw new Error(`Failed to send email: ${error.message}`);
-    }
 
     console.info('[email] send success', {
       requestId,
-      provider: 'resend',
+      provider: transport.provider,
       to: maskEmailList(toAddress),
-      messageId: data?.id,
+      messageId: result.id,
       durationMs: Date.now() - startTime,
     });
 
     return {
       message: 'Email sent successfully',
-      id: data?.id,
+      id: result.id,
     };
   } catch (error) {
     console.error('[email] send failure', {
       requestId,
-      provider: 'resend',
+      provider: transport.provider,
       to: maskEmailList(toAddress),
       durationMs: Date.now() - startTime,
       error: error instanceof Error ? error.message : String(error),
