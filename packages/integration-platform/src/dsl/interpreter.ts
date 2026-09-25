@@ -16,6 +16,7 @@ import type {
 import { SyncEmployeeSchema, SyncDeviceSchema } from './types';
 import { evaluateCondition, evaluateOperator, resolvePath } from './expression-evaluator';
 import { interpolate, interpolateTemplate } from './template-engine';
+import { runCodeInSandbox } from './code-sandbox';
 
 /**
  * Converts a declarative CheckDefinition (JSON DSL) into an IntegrationCheck
@@ -617,7 +618,7 @@ function executeEmit(
 }
 
 /**
- * Execute a code step — run arbitrary JavaScript with access to ctx and scope.
+ * Execute a code step inside the isolated-vm sandbox (see code-sandbox.ts).
  */
 async function executeCode(
   step: CodeStep,
@@ -633,10 +634,7 @@ async function executeCode(
   const scopeKeysBefore = Object.keys(scope);
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-    const fn = new AsyncFunction('ctx', 'scope', step.code);
-    await fn(ctx, scope);
+    await runCodeInSandbox({ code: step.code, scope, ctx });
 
     // Log scope changes for debugging
     const scopeKeysAfter = Object.keys(scope);

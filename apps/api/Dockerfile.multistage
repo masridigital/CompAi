@@ -132,4 +132,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3333/v1/health || exit 1
 
 # Start the application with crash diagnostics
-CMD ["node", "--report-on-fatalerror", "--report-compact", "dist/src/main.js"]
+# --no-node-snapshot is required by isolated-vm (DSL code-step sandbox) on Node 20+.
+# isolated-vm ships prebuilt linux x64/arm64 binaries for Node 22, so the
+# `bun install --ignore-scripts` deps stage needs no node-gyp toolchain.
+CMD ["node", "--no-node-snapshot", "--report-on-fatalerror", "--report-compact", "dist/src/main.js"]
