@@ -19,6 +19,8 @@ model HaloTicketLink {
   state          HaloTicketLinkState @default(pending_create)
   resolvedAt     DateTime?
   lastEventAt    DateTime            @default(now())
+  /// Last time halopsa-reconcile-tickets polled this link (null = never).
+  lastReconciledAt DateTime?
   createdAt      DateTime            @default(now())
 
   organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -26,6 +28,7 @@ model HaloTicketLink {
 
   @@unique([organizationId, dedupKey])
   @@index([state])
+  @@index([state, lastReconciledAt])
 }
 
 enum HaloOutboxStatus {

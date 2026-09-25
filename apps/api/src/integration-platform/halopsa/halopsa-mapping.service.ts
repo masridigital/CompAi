@@ -1,6 +1,13 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { db, Prisma } from '@db';
-import { createHaloClient, halopsaManifest, type HaloClient } from '@trycompai/integration-platform';
+import { db } from '@db';
+import {
+  createHaloClient,
+  HALO_BINDING_METADATA_KEY,
+  HALO_BINDING_RESERVED_KEYS,
+  halopsaManifest,
+  type HaloBinding,
+  type HaloClient,
+} from '@trycompai/integration-platform';
 import { ProviderRepository } from '../repositories/provider.repository';
 import { ConnectionService } from '../services/connection.service';
 import { CredentialVaultService } from '../services/credential-vault.service';
@@ -60,23 +67,18 @@ export class HaloMappingService {
       include: { organization: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'asc' },
     });
-    return Promise.all(
-      connections.map(async (connection) => {
-        const mapping = await resolveMappingForConnection(connection).catch((error: unknown) => {
-          this.logger.warn(`Could not resolve Halo mapping for ${connection.id}: ${String(error)}`);
-          return null;
-        });
-        return {
-          connectionId: connection.id,
-          organizationId: connection.organizationId,
-          organizationName: connection.organization.name,
-          status: connection.status,
-          haloClientId: mapping?.haloClientId ?? null,
-          haloSiteId: mapping?.haloSiteId ?? null,
-          hasWebhookToken: typeof asRecord(connection.metadata)[HALO_WEBHOOK_TOKEN_HASH_KEY] === 'string',
-        };
-      }),
-    );
+    return connections.map((connection) => {
+      const mapping = resolveMappingForConnection(connection);
+      return {
+        connectionId: connection.id,
+        organizationId: connection.organizationId,
+        organizationName: connection.organization.name,
+        status: connection.status,
+        haloClientId: mapping?.haloClientId ?? null,
+        haloSiteId: mapping?.haloSiteId ?? null,
+        hasWebhookToken: typeof asRecord(connection.metadata)[HALO_WEBHOOK_TOKEN_HASH_KEY] === 'string',
+      };
+    });
   }
 
   /** Active Halo clients with their mapping status and auto-match suggestions. */
@@ -118,20 +120,23 @@ export class HaloMappingService {
 
   /**
    * Bind a Halo client to an org: create or update the org's `halopsa`
-   * connection. The mapping goes through the credential vault (like the
-   * normal connect flow) and is mirrored in metadata for quick lookup.
+   * connection. PLATFORM ADMIN ONLY. The binding is written to metadata
+   * under HALO_BINDING_METADATA_KEY, the only place Halo consumers read it
+   * from; customers cannot write that key (generic endpoints refuse halopsa).
    */
   async bind({
     haloClientId,
     organizationId,
     haloSiteId,
     haloClientName,
+    actorUserId,
   }: {
     haloClientId: number;
     organizationId: string;
     haloSiteId?: number;
     /** Cached in metadata for admin lists; fetched from Halo when omitted. */
     haloClientName?: string;
+    actorUserId?: string;
   }) {
     const org = await db.organization.findUnique({ where: { id: organizationId }, select: { id: true } });
     if (!org) throw new NotFoundException(`Organization ${organizationId} not found`);
@@ -154,10 +159,12 @@ export class HaloMappingService {
     });
 
     const clientName = haloClientName ?? (await this.lookupClientName(haloClientId));
-    const mappingMeta = {
+    const binding: HaloBinding = {
       haloClientId,
       ...(haloSiteId ? { haloSiteId } : {}),
       ...(clientName ? { haloClientName: clientName } : {}),
+      boundAt: new Date().toISOString(),
+      ...(actorUserId ? { boundByUserId: actorUserId } : {}),
     };
     const existing = await this.connectionService.getConnectionByProviderSlug(
       HALOPSA_PROVIDER_SLUG,
@@ -169,19 +176,25 @@ export class HaloMappingService {
         providerSlug: HALOPSA_PROVIDER_SLUG,
         organizationId,
         authStrategy: 'custom',
-        metadata: mappingMeta,
+        metadata: { [HALO_BINDING_METADATA_KEY]: binding },
       }));
 
     if (existing) {
-      const { haloSiteId: _oldSite, haloClientName: _oldName, ...rest } = asRecord(existing.metadata);
-      const metadata: Prisma.InputJsonObject = { ...(rest as Prisma.InputJsonObject), ...mappingMeta };
-      await this.connectionService.updateConnectionMetadata(existing.id, metadata);
+      // Drop legacy/unverified binding keys (possibly customer-written) and replace the binding.
+      const rest = Object.fromEntries(
+        Object.entries(asRecord(existing.metadata)).filter(
+          ([key]) => !HALO_BINDING_RESERVED_KEYS.includes(key),
+        ),
+      );
+      await this.connectionService.updateConnectionMetadata(existing.id, {
+        ...rest,
+        [HALO_BINDING_METADATA_KEY]: binding,
+      });
     }
 
-    await this.credentialVaultService.storeApiKeyCredentials(connection.id, {
-      haloClientId: String(haloClientId),
-      ...(haloSiteId ? { haloSiteId: String(haloSiteId) } : {}),
-    });
+    // Non-secret marker: the check runners require a credential row for custom
+    // auth. It also overwrites any legacy customer-entered haloClientId.
+    await this.credentialVaultService.storeApiKeyCredentials(connection.id, { managedBy: 'msp' });
     await this.connectionService.activateConnection(connection.id);
 
     this.logger.log(`Bound Halo client ${haloClientId} to org ${organizationId} (${connection.id})`);

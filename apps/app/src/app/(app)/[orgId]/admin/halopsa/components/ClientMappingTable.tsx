@@ -1,10 +1,6 @@
 'use client';
 
-import {
-  createOrgFromHaloClient,
-  useHaloClients,
-  type HaloClientRow,
-} from '@/hooks/use-admin-halopsa';
+import { useHaloClients, type HaloClientRow } from '@/hooks/use-admin-halopsa';
 import {
   Badge,
   Button,
@@ -19,8 +15,8 @@ import {
   Text,
 } from '@trycompai/design-system';
 import { useMemo, useState } from 'react';
-import { toast } from 'sonner';
 import { BindClientSheet } from './BindClientSheet';
+import { CreateOrgSheet } from './CreateOrgSheet';
 
 type Filter = 'unmapped' | 'all';
 
@@ -29,7 +25,7 @@ export function ClientMappingTable({ onChanged }: { onChanged?: () => void }) {
   const [filter, setFilter] = useState<Filter>('unmapped');
   const [search, setSearch] = useState('');
   const [binding, setBinding] = useState<HaloClientRow | null>(null);
-  const [creatingId, setCreatingId] = useState<number | null>(null);
+  const [creating, setCreating] = useState<HaloClientRow | null>(null);
 
   const rows = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -44,18 +40,6 @@ export function ClientMappingTable({ onChanged }: { onChanged?: () => void }) {
   const handleChanged = () => {
     void mutate();
     onChanged?.();
-  };
-
-  const handleCreateOrg = async (client: HaloClientRow) => {
-    setCreatingId(client.id);
-    const response = await createOrgFromHaloClient({ haloClientId: client.id });
-    setCreatingId(null);
-    if (response.error) {
-      toast.error(response.error);
-      return;
-    }
-    toast.success(`Created an organization for ${client.name}`);
-    handleChanged();
   };
 
   return (
@@ -140,12 +124,7 @@ export function ClientMappingTable({ onChanged }: { onChanged?: () => void }) {
                         <Button size="sm" variant="outline" onClick={() => setBinding(client)}>
                           Bind
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          loading={creatingId === client.id}
-                          onClick={() => handleCreateOrg(client)}
-                        >
+                        <Button size="sm" variant="outline" onClick={() => setCreating(client)}>
                           Create org
                         </Button>
                       </>
@@ -164,6 +143,7 @@ export function ClientMappingTable({ onChanged }: { onChanged?: () => void }) {
         onClose={() => setBinding(null)}
         onBound={handleChanged}
       />
+      <CreateOrgSheet client={creating} onClose={() => setCreating(null)} onCreated={handleChanged} />
     </Section>
   );
 }

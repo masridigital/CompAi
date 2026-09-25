@@ -1,13 +1,24 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { db } from '@db';
 import { FrameworksService } from '../../frameworks/frameworks.service';
+import { inviteOrganizationOwner } from './organization-owner-invite';
 
 export interface ProvisionOrganizationInput {
   name: string;
   website?: string | null;
-  /** User who becomes the org owner (the acting platform admin). */
-  ownerUserId: string;
+  /**
+   * The acting platform admin. Added as an `admin` member (not owner) so the
+   * MSP can set the org up; ownership belongs to the client.
+   */
+  actingAdminUserId: string;
+  /** Client contact invited as `owner` through the normal invitation flow. */
+  ownerEmail?: string;
   frameworkIds?: string[];
+}
+
+export interface ProvisionOrganizationResult {
+  organizationId: string;
+  ownerInvitationId: string | null;
 }
 
 function normalizeWebsite(website: string | null | undefined): string | null {
@@ -24,10 +35,10 @@ function normalizeWebsite(website: string | null | undefined): string | null {
 /**
  * Minimal API-side organization creation for admin provisioning (e.g.
  * "Create org from Halo client"). Mirrors the core of the app's
- * createOrganizationMinimal + initializeOrganization: org + owner member +
- * onboarding record, then the framework structure via
+ * createOrganizationMinimal + initializeOrganization: org + admin member for
+ * the acting platform admin + onboarding record, then the framework structure via
  * FrameworksService.addFrameworks (the same upsert the app uses).
- * Onboarding questions are left for the owner to complete in the app.
+ * Onboarding questions are left for the owner (invited by email) to complete.
  */
 @Injectable()
 export class OrganizationProvisioningService {
@@ -35,7 +46,7 @@ export class OrganizationProvisioningService {
 
   constructor(private readonly frameworksService: FrameworksService) {}
 
-  async provision(input: ProvisionOrganizationInput): Promise<{ organizationId: string }> {
+  async provision(input: ProvisionOrganizationInput): Promise<ProvisionOrganizationResult> {
     const name = input.name.trim();
     if (name.length < 2) throw new BadRequestException('Organization name must be at least 2 characters');
     const frameworkIds = [...new Set(input.frameworkIds ?? [])];
@@ -56,7 +67,7 @@ export class OrganizationProvisioningService {
           website: normalizeWebsite(input.website),
           onboardingCompleted: false,
           hasAccess: true,
-          members: { create: { userId: input.ownerUserId, role: 'owner' } },
+          members: { create: { userId: input.actingAdminUserId, role: 'admin' } },
           ...(frameworkIds.length
             ? {
                 context: {
@@ -95,7 +106,17 @@ export class OrganizationProvisioningService {
       }
     }
 
+    const ownerEmail = input.ownerEmail?.trim();
+    const invite = ownerEmail
+      ? await inviteOrganizationOwner({
+          organizationId: organization.id,
+          organizationName: name,
+          email: ownerEmail,
+          inviterUserId: input.actingAdminUserId,
+        })
+      : null;
+
     this.logger.log(`Provisioned organization ${organization.id} (${name})`);
-    return { organizationId: organization.id };
+    return { organizationId: organization.id, ownerInvitationId: invite?.invitationId ?? null };
   }
 }

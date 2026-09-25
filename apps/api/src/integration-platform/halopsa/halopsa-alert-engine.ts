@@ -16,6 +16,8 @@ export interface CreateTicketPayload {
   agentId?: number;
   /** Status applied if the link was resolved while the create was in flight. */
   resolvedStatusId?: number;
+  /** Search Halo for the ref token before creating (the token may already be on a ticket). */
+  searchFirst?: boolean;
 }
 
 export interface AlertSignal {
@@ -26,6 +28,8 @@ export interface AlertSignal {
   entityType: HaloEntityType;
   entityId: string;
   dedupKey: string;
+  /** Earlier dedupKey format for the same entity; such a link is adopted (renamed). */
+  legacyDedupKey?: string;
   failing: boolean;
   priorityId: number;
   buildTicket: (refToken: string) => Promise<TicketContent>;
@@ -82,25 +86,58 @@ function createPayload({
 }
 
 function toJson(payload: CreateTicketPayload): Prisma.InputJsonObject {
-  const out: Record<string, string | number> = {};
+  const out: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(payload)) {
     if (value !== undefined) out[key] = value;
   }
   return out;
 }
 
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+}
+
+/** The link for this signal, adopting one stored under the legacy dedupKey. */
+async function findLink({ tx, signal }: { tx: Tx; signal: AlertSignal }) {
+  const { organizationId, dedupKey, legacyDedupKey } = signal;
+  const link = await tx.haloTicketLink.findUnique({
+    where: { organizationId_dedupKey: { organizationId, dedupKey } },
+  });
+  if (link || !legacyDedupKey) return link;
+
+  const legacy = await tx.haloTicketLink.findUnique({
+    where: { organizationId_dedupKey: { organizationId, dedupKey: legacyDedupKey } },
+  });
+  if (!legacy) return null;
+  // Guarded rename: only one signal can adopt a legacy link.
+  const renamed = await tx.haloTicketLink.updateMany({
+    where: { id: legacy.id, dedupKey: legacyDedupKey },
+    data: { dedupKey },
+  });
+  return renamed.count === 1 ? { ...legacy, dedupKey } : null;
+}
+
 /**
  * Apply one alert signal: upsert the HaloTicketLink by dedupKey and write the
- * resulting outbox events, all in one transaction.
+ * resulting outbox events, all in one transaction. Two concurrent signals for
+ * a new dedupKey race on the unique index; the loser (P2002) retries once and
+ * then sees the winner's link.
  */
 export async function applyAlertSignal(signal: AlertSignal): Promise<AlertOutcome> {
+  try {
+    return await applyAlertSignalOnce(signal);
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    return applyAlertSignalOnce(signal);
+  }
+}
+
+async function applyAlertSignalOnce(signal: AlertSignal): Promise<AlertOutcome> {
   const now = signal.now ?? new Date();
   const { organizationId, dedupKey } = signal;
 
   return db.$transaction(async (tx) => {
-    const link = await tx.haloTicketLink.findUnique({
-      where: { organizationId_dedupKey: { organizationId, dedupKey } },
-    });
+    const link = await findLink({ tx, signal });
     const queued = link
       ? await tx.haloOutboxEvent.count({
           where: { linkId: link.id, status: { in: [...QUEUED_STATUSES] } },
@@ -116,8 +153,12 @@ export async function applyAlertSignal(signal: AlertSignal): Promise<AlertOutcom
 
     switch (decision) {
       case 'create': {
-        // A fresh ticket always gets a fresh reference token.
-        const refToken = generateRefToken();
+        // A link still pending_create had a create that died after an
+        // ambiguous failure: its ticket may exist in Halo, so keep the token
+        // and search for it before creating. Otherwise a fresh ticket gets a
+        // fresh reference token.
+        const reuse = link?.state === 'pending_create';
+        const refToken = reuse ? link.refToken : generateRefToken();
         const content = await signal.buildTicket(refToken);
         const data = {
           connectionId: signal.connectionId,
@@ -132,7 +173,8 @@ export async function applyAlertSignal(signal: AlertSignal): Promise<AlertOutcom
         const saved = link
           ? await tx.haloTicketLink.update({ where: { id: link.id }, data })
           : await tx.haloTicketLink.create({ data: { ...data, organizationId, dedupKey } });
-        await add(saved.id, 'create_ticket', toJson(createPayload({ signal, content })));
+        const payload = createPayload({ signal, content });
+        await add(saved.id, 'create_ticket', toJson(reuse ? { ...payload, searchFirst: true } : payload));
         break;
       }
       case 'note': {

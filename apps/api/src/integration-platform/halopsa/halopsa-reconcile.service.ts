@@ -13,23 +13,36 @@ export interface ReconcileResult {
 
 /**
  * Webhooks are best effort: poll open links and apply the same closed
- * handling as the webhook (plan 6.4, halopsa-reconcile-tickets).
+ * handling as the webhook (plan 6.4, halopsa-reconcile-tickets). Each run
+ * takes the least recently reconciled open links (never-polled first) and
+ * stamps lastReconciledAt, so more than one batch of open links is covered
+ * over successive runs.
  */
 @Injectable()
 export class HaloReconcileService {
   private readonly logger = new Logger(HaloReconcileService.name);
 
-  async reconcile({ client }: { client: HaloClient }): Promise<ReconcileResult> {
+  async reconcile({
+    client,
+    now = new Date(),
+    batchSize = RECONCILE_BATCH,
+  }: {
+    client: HaloClient;
+    now?: Date;
+    batchSize?: number;
+  }): Promise<ReconcileResult> {
     const links = await db.haloTicketLink.findMany({
       where: { state: 'open', haloTicketId: { not: null } },
-      orderBy: { lastEventAt: 'asc' },
-      take: RECONCILE_BATCH,
+      orderBy: [{ lastReconciledAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
+      take: batchSize,
     });
 
     const result: ReconcileResult = { checked: 0, closed: 0, errors: 0 };
     for (const link of links) {
       if (link.haloTicketId === null) continue;
       result.checked++;
+      // Advance the cursor first so a link that keeps failing cannot pin the batch.
+      await db.haloTicketLink.update({ where: { id: link.id }, data: { lastReconciledAt: now } });
       try {
         const ticket = await client.getTicket(link.haloTicketId);
         const closed = ticket.hasbeenclosed === true || ticketClosedAt(ticket) !== null;
@@ -39,15 +52,15 @@ export class HaloReconcileService {
           ticketId: link.haloTicketId,
           resolution: ticket.closure_note ?? ticket.resolution ?? null,
         });
-        if (outcome !== 'already_closed') result.closed++;
+        if (outcome !== 'already_closed' && outcome !== 'not_open') result.closed++;
       } catch (error) {
         if (error instanceof HaloApiError && error.status === 404) {
-          await handleHaloTicketClosed({
+          const outcome = await handleHaloTicketClosed({
             link,
             ticketId: link.haloTicketId,
             resolution: 'The ticket no longer exists in Halo.',
           });
-          result.closed++;
+          if (outcome !== 'already_closed' && outcome !== 'not_open') result.closed++;
           continue;
         }
         result.errors++;

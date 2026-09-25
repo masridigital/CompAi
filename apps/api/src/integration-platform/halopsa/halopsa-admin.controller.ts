@@ -9,15 +9,14 @@ import {
   Query,
   Req,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
-import { ApiExcludeController, ApiOperation } from '@nestjs/swagger';
+import { ApiExcludeController, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { HaloOutboxStatus } from '@db';
 import { PlatformAdminGuard } from '../../auth/platform-admin.guard';
 import { OrganizationProvisioningService } from '../../organization/provisioning/organization-provisioning.service';
-import { PlatformAuditLogInterceptor } from '../interceptors/platform-audit-log.interceptor';
 import { BindHaloClientDto, CreateOrgFromHaloClientDto } from './dto/halopsa-admin.dto';
+import { writeHaloAdminAudit } from './halopsa-admin-audit';
 import { HaloMappingService } from './halopsa-mapping.service';
 import { HaloOutboxService } from './halopsa-outbox.service';
 import { HaloWebhookService } from './halopsa-webhook.service';
@@ -31,10 +30,19 @@ function parseStatus(value: string | undefined): HaloOutboxStatus | undefined {
   return status;
 }
 
+interface AdminRequest {
+  userId: string;
+}
+
+/**
+ * Platform-admin HaloPSA management. Mutations write explicit audit rows
+ * under the affected organization (writeHaloAdminAudit) instead of the
+ * generic PlatformAuditLogInterceptor, which labels them as credential saves.
+ */
 @ApiExcludeController()
+@ApiTags('Admin - HaloPSA')
 @Controller({ path: 'admin/halopsa', version: '1' })
 @UseGuards(PlatformAdminGuard)
-@UseInterceptors(PlatformAuditLogInterceptor)
 @Throttle({ default: { ttl: 60000, limit: 30 } })
 export class HaloAdminController {
   constructor(
@@ -61,12 +69,22 @@ export class HaloAdminController {
   async bind(
     @Param('haloClientId', ParseIntPipe) haloClientId: number,
     @Body() body: BindHaloClientDto,
+    @Req() req: AdminRequest,
   ) {
-    return this.mappingService.bind({
+    const result = await this.mappingService.bind({
       haloClientId,
       organizationId: body.organizationId,
       haloSiteId: body.haloSiteId,
+      actorUserId: req.userId,
     });
+    await writeHaloAdminAudit({
+      userId: req.userId,
+      organizationId: result.organizationId,
+      action: 'bind_client',
+      entityId: result.connectionId,
+      details: { haloClientId, haloSiteId: result.haloSiteId },
+    });
+    return result;
   }
 
   @Post('clients/:haloClientId/create-org')
@@ -74,31 +92,55 @@ export class HaloAdminController {
   async createOrg(
     @Param('haloClientId', ParseIntPipe) haloClientId: number,
     @Body() body: CreateOrgFromHaloClientDto,
-    @Req() req: { userId: string },
+    @Req() req: AdminRequest,
   ) {
     const client = await this.mappingService.getHaloClient(haloClientId);
-    const { organizationId } = await this.provisioningService.provision({
+    const { organizationId, ownerInvitationId } = await this.provisioningService.provision({
       name: client.name,
       website: client.website,
-      ownerUserId: req.userId,
+      actingAdminUserId: req.userId,
+      ownerEmail: body.ownerEmail,
       frameworkIds: body.templateFrameworkIds,
     });
-    return this.mappingService.bind({
+    await writeHaloAdminAudit({
+      userId: req.userId,
+      organizationId,
+      action: 'create_org_from_client',
+      entityId: organizationId,
+      details: { haloClientId, ownerInvited: ownerInvitationId !== null },
+    });
+    const result = await this.mappingService.bind({
       haloClientId,
       organizationId,
       haloSiteId: body.haloSiteId,
       haloClientName: client.name,
+      actorUserId: req.userId,
     });
+    await writeHaloAdminAudit({
+      userId: req.userId,
+      organizationId,
+      action: 'bind_client',
+      entityId: result.connectionId,
+      details: { haloClientId, haloSiteId: result.haloSiteId },
+    });
+    return { ...result, ownerInvitationId };
   }
 
   @Post('connections/:id/webhook-token')
   @ApiOperation({ summary: 'Issue a webhook token for a HaloPSA connection' })
-  async issueWebhookToken(@Param('id') id: string) {
+  async issueWebhookToken(@Param('id') id: string, @Req() req: AdminRequest) {
     const connection = await this.mappingService.getConnection(id);
-    return this.webhookService.issueToken({
+    const issued = await this.webhookService.issueToken({
       connectionId: connection.connectionId,
       organizationId: connection.organizationId,
     });
+    await writeHaloAdminAudit({
+      userId: req.userId,
+      organizationId: connection.organizationId,
+      action: 'issue_webhook_token',
+      entityId: connection.connectionId,
+    });
+    return issued;
   }
 
   @Get('outbox')
@@ -113,7 +155,14 @@ export class HaloAdminController {
 
   @Post('outbox/:id/retry')
   @ApiOperation({ summary: 'Retry a dead HaloPSA outbox event' })
-  async retryOutbox(@Param('id') id: string) {
-    return this.outboxService.retry({ id });
+  async retryOutbox(@Param('id') id: string, @Req() req: AdminRequest) {
+    const { organizationId, ...result } = await this.outboxService.retry({ id });
+    await writeHaloAdminAudit({
+      userId: req.userId,
+      organizationId,
+      action: 'retry_outbox_event',
+      entityId: id,
+    });
+    return result;
   }
 }

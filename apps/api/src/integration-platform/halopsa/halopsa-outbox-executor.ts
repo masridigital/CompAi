@@ -26,7 +26,7 @@ export interface ExecuteContext {
 }
 
 async function mappingFor(link: LinkWithConnection) {
-  const mapping = await resolveMappingForConnection(link.connection);
+  const mapping = resolveMappingForConnection(link.connection);
   if (!mapping) {
     throw new HaloPermanentError(`Connection ${link.connectionId} has no valid Halo client mapping`);
   }
@@ -101,7 +101,11 @@ async function executeCreate(ctx: ExecuteContext): Promise<void> {
   if (link.haloTicketId !== null && link.state !== 'pending_create') return;
 
   const payload = CreateTicketPayloadSchema.parse(ctx.event.payload);
-  const ticketId = await createOrAdopt({ ctx, payload, searchFirst: previousWasAmbiguous(ctx.event) });
+  const ticketId = await createOrAdopt({
+    ctx,
+    payload,
+    searchFirst: previousWasAmbiguous(ctx.event) || payload.searchFirst === true,
+  });
 
   const current = await db.haloTicketLink.findUnique({ where: { id: link.id }, select: { state: true } });
   const resolvedMeanwhile = current?.state === 'resolved';

@@ -34,6 +34,7 @@ const enabledAll = {
 
 const checkInput = (passed: boolean) => ({
   organizationId: 'org_1',
+  connectionId: 'icn_gws',
   checkId: 'mfa',
   checkName: 'MFA enabled',
   passed,
@@ -87,7 +88,7 @@ describe('HaloAlertService', () => {
     expect(linkData).toMatchObject({
       organizationId: 'org_1',
       connectionId: 'icn_1',
-      dedupKey: 'integration_check_failed:mfa',
+      dedupKey: 'integration_check_failed:icn_gws:mfa',
       entityType: 'check',
       entityId: 'tsk_1',
       state: 'pending_create',

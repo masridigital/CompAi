@@ -41,13 +41,44 @@ describe('shared setup failures', () => {
     await incidentResponseCheck.run(ctx);
     expect(fails).toHaveLength(1);
     expect(fails[0].title).toBe('HaloPSA is not configured on this server');
-    expect(fails[0].description).toContain('HALOPSA_CLIENT_SECRET');
+    // Env var names stay in server logs, never in customer-visible findings.
+    expect(fails[0].description).not.toContain('HALOPSA_');
+    expect(fails[0].remediation).not.toContain('HALOPSA_');
   });
 
-  it('fails when the connection has no Halo client id', async () => {
-    const { ctx, fails } = makeCtx({ credentials: {} });
+  it('fails when the connection has no admin binding', async () => {
+    const { ctx, fails } = makeCtx({ metadata: {} });
     await accessReviewCheck.run(ctx);
-    expect(fails[0].title).toContain('not mapped');
+    expect(fails[0].title).toContain('not bound');
+  });
+
+  it('ignores a Halo client id in credentials or variables', async () => {
+    const { ctx, fails } = makeCtx({
+      credentials: { haloClientId: '99' },
+      variables: { haloClientId: 99, access_review_ticket_type_ids: '22' },
+      metadata: {},
+    });
+    await accessReviewCheck.run(ctx);
+    expect(fails).toHaveLength(1);
+    expect(fails[0].title).toContain('not bound');
+    expect(halo.requests).toHaveLength(0);
+  });
+
+  it('ignores a legacy top-level haloClientId in metadata', async () => {
+    const { ctx, fails } = makeCtx({ metadata: { haloClientId: 99 } });
+    await accessReviewCheck.run(ctx);
+    expect(fails[0].title).toContain('not bound');
+  });
+
+  it('uses only the admin binding when credentials disagree', async () => {
+    halo.setRoutes({ '/api/Tickets': () => ({ record_count: 0, tickets: [] }) });
+    const { ctx } = makeCtx({
+      credentials: { haloClientId: '99' },
+      variables: { haloClientId: 99, incident_ticket_type_ids: '21' },
+    });
+    await incidentResponseCheck.run(ctx);
+    const call = halo.requests.find((u) => u.pathname === '/api/Tickets');
+    expect(call?.searchParams.get('client_id')).toBe('7');
   });
 
   it('fails when ticket types are not configured', async () => {
@@ -63,6 +94,8 @@ describe('shared setup failures', () => {
     await incidentResponseCheck.run(ctx);
     expect(fails[0].title).toBe('HaloPSA denied access');
     expect(fails[0].remediation).toContain('read:tickets');
+    // Generic description: no Halo response body.
+    expect(fails[0].description).toBe('HaloPSA request failed (status 403)');
   });
 });
 

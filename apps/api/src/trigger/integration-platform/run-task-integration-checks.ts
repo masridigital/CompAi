@@ -1,4 +1,5 @@
 import { getManifest, runAllChecks } from '@trycompai/integration-platform';
+import { asRecord } from '../../integration-platform/halopsa/halopsa-connection';
 import { db } from '@db';
 import { logger, tags, task } from '@trigger.dev/sdk';
 import { isCheckDisabledForTask } from '../../integration-platform/utils/disabled-task-checks';
@@ -263,6 +264,8 @@ export const runTaskIntegrationChecks = task({
               connectionId,
               organizationId,
               checkId, // Run specific check
+              // Connection metadata, e.g. the admin-written HaloPSA client binding.
+              metadata: asRecord(connection.metadata),
               onTokenRefresh:
                 manifest.auth.type === 'oauth2'
                   ? handleTokenRefresh

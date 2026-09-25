@@ -22,12 +22,17 @@ export interface RecordedCheck {
   fails: CheckFindingResult[];
 }
 
+/** Admin-written binding metadata for Halo client 7. */
+export const BOUND_METADATA = { halopsaBinding: { haloClientId: 7 } };
+
 export function makeCtx({
-  credentials = { haloClientId: '7' },
+  credentials = { managedBy: 'msp' },
   variables = {},
+  metadata = BOUND_METADATA,
 }: {
   credentials?: Record<string, string | string[]>;
   variables?: CheckVariableValues;
+  metadata?: Record<string, unknown>;
 } = {}): RecordedCheck {
   const passes: CheckPassingResult[] = [];
   const fails: CheckFindingResult[] = [];
@@ -39,6 +44,7 @@ export function makeCtx({
     variables,
     connectionId: 'icn_test',
     organizationId: 'org_test',
+    metadata,
     log: () => {},
     warn: () => {},
     error: () => {},

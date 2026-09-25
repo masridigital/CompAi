@@ -31,6 +31,8 @@ import { ConnectionService } from '../services/connection.service';
 import { ProviderRepository } from '../repositories/provider.repository';
 import { CredentialVaultService } from '../services/credential-vault.service';
 import { AutoCheckRunnerService } from '../services/auto-check-runner.service';
+import { assertCustomerMayUpdateVariables } from '../halopsa/halopsa-managed-connection';
+import { getProviderSummary } from '../utils/provider-summary';
 
 // Class (not interface) so @nestjs/swagger emits a body schema, with a
 // class-validator decorator so the ValidationPipe whitelist accepts `variables`.
@@ -453,6 +455,10 @@ export class VariablesController {
     if (!connection) {
       throw new HttpException('Connection not found', HttpStatus.NOT_FOUND);
     }
+    assertCustomerMayUpdateVariables({
+      providerSlug: getProviderSummary(connection)?.slug,
+      variables: body.variables,
+    });
 
     // Merge with existing variables
     const existingVariables =

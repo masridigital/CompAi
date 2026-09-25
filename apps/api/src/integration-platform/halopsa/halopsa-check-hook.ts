@@ -52,6 +52,7 @@ export function buildHaloCheckResults({
     );
     return {
       organizationId,
+      connectionId,
       taskId,
       checkId: check.checkId,
       checkName: check.checkName,

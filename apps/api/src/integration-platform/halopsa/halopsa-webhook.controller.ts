@@ -1,14 +1,15 @@
-import { Controller, Headers, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
-import { ApiExcludeEndpoint, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { Controller, Headers, HttpCode, Param, Post, Req } from '@nestjs/common';
+import { ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { OrganizationId } from '../../auth/auth-context.decorator';
-import { HybridAuthGuard } from '../../auth/hybrid-auth.guard';
-import { PermissionGuard } from '../../auth/permission.guard';
 import { Public } from '../../auth/public.decorator';
-import { RequirePermission } from '../../auth/require-permission.decorator';
 import { HaloWebhookService } from './halopsa-webhook.service';
 
+/**
+ * Webhook tokens are issued only by platform admins
+ * (POST /v1/admin/halopsa/connections/:id/webhook-token): the webhook is the
+ * MSP's Halo integration, so a client org must not be able to rotate it.
+ */
 @Controller({ path: 'integrations/halopsa', version: '1' })
 @ApiTags('Integrations')
 export class HaloWebhookController {
@@ -35,18 +36,5 @@ export class HaloWebhookController {
       body: req.body as unknown,
     });
     return { received: true, outcome };
-  }
-
-  @Post('connections/:id/webhook-token')
-  @UseGuards(HybridAuthGuard, PermissionGuard)
-  @RequirePermission('integration', 'update')
-  @ApiSecurity('apikey')
-  @ApiOperation({
-    summary: 'Issue a HaloPSA webhook token',
-    description:
-      'Generates a new webhook token for this HaloPSA connection and returns the plain token and full webhook URL once. Any previous token stops working.',
-  })
-  async issueWebhookToken(@OrganizationId() organizationId: string, @Param('id') id: string) {
-    return this.webhookService.issueToken({ connectionId: id, organizationId });
   }
 }

@@ -13,7 +13,7 @@ import {
 } from '../../sync-filter/email-exclusion-terms';
 import type { CheckContext, CheckVariable } from '../../types';
 import { createHaloClient, type HaloClientOptions, type HaloUser } from './client';
-import { resolveHaloConnectionMapping } from './credentials';
+import { haloMappingFromMetadata, HALO_NOT_BOUND_MESSAGE } from './binding';
 
 export const SYNC_EXCLUDE_PATTERNS_VARIABLE_ID = 'sync_exclude_patterns';
 
@@ -124,14 +124,12 @@ export async function syncHaloEmployees({
   ctx: CheckContext;
   clientOptions?: HaloClientOptions;
 }): Promise<SyncEmployee[]> {
-  const mapping = resolveHaloConnectionMapping({
-    credentials: ctx.credentials,
-    variables: ctx.variables,
-  });
-  if (!mapping.success) throw new Error(mapping.error);
+  // Admin-written binding only: never credentials or variables.
+  const mapping = haloMappingFromMetadata(ctx.metadata);
+  if (!mapping) throw new Error(HALO_NOT_BOUND_MESSAGE);
 
   const halo = createHaloClient(clientOptions);
-  const clientId = mapping.data.haloClientId;
+  const clientId = mapping.haloClientId;
   ctx.log(`Fetching HaloPSA contacts for client ${clientId}`);
   const users = await halo.listClientUsers(clientId);
 

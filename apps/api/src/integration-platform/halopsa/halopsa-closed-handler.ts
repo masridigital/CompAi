@@ -5,7 +5,7 @@ import { redactSecrets } from '../utils/redact-secrets';
 const logger = new Logger('HaloClosedHandler');
 const MAX_COMMENT_LENGTH = 2000;
 
-export type ClosedOutcome = 'already_closed' | 'closed' | 'closed_no_comment';
+export type ClosedOutcome = 'not_open' | 'already_closed' | 'closed' | 'closed_no_comment';
 
 /**
  * Comment author for integration-generated comments. There is no system user,
@@ -65,6 +65,11 @@ function commentTarget(link: HaloTicketLink): { entityType: CommentEntityType; e
  * A Halo ticket was closed (webhook or reconcile). Marks the link
  * `closed_externally` and leaves a comment on the linked task or finding.
  * A Halo close is a signal, not evidence: the task is never marked done here.
+ *
+ * Only links in state `open` are acted on: a ticket we resolved ourselves
+ * (state `resolved`, e.g. after the check passed) closing in Halo is our own
+ * auto-resolve, not an external close, and must not add a comment or flip
+ * the link. The state guard is repeated in the update for races.
  */
 export async function handleHaloTicketClosed({
   link,
@@ -79,8 +84,9 @@ export async function handleHaloTicketClosed({
   agentName?: string | null;
   now?: Date;
 }): Promise<ClosedOutcome> {
+  if (link.state !== 'open') return 'not_open';
   const updated = await db.haloTicketLink.updateMany({
-    where: { id: link.id, state: { not: 'closed_externally' } },
+    where: { id: link.id, state: 'open' },
     data: { state: 'closed_externally', resolvedAt: link.resolvedAt ?? now, lastEventAt: now },
   });
   if (updated.count === 0) return 'already_closed';

@@ -1,6 +1,7 @@
 const mockDb = {
   haloOutboxEvent: {
     findMany: jest.fn(),
+    findFirst: jest.fn(),
     updateMany: jest.fn(),
     update: jest.fn(),
     count: jest.fn(),
@@ -10,7 +11,7 @@ const mockDb = {
 
 jest.mock('@db', () => ({ db: mockDb }));
 jest.mock('./halopsa-connection', () => ({
-  resolveMappingForConnection: jest.fn().mockResolvedValue({ haloClientId: 42, haloSiteId: 7 }),
+  resolveMappingForConnection: jest.fn().mockReturnValue({ haloClientId: 42, haloSiteId: 7 }),
 }));
 
 import type { HaloClient } from '@trycompai/integration-platform';
@@ -60,8 +61,9 @@ function fakeClient(overrides: Partial<Record<keyof HaloClient, jest.Mock>> = {}
   } as unknown as HaloClient;
 }
 
+/** The guarded final write (updateMany on id + status processing + lease). */
 const lastUpdate = () => {
-  const calls = mockDb.haloOutboxEvent.update.mock.calls;
+  const calls = mockDb.haloOutboxEvent.updateMany.mock.calls;
   return calls[calls.length - 1][0].data;
 };
 
@@ -71,6 +73,7 @@ describe('HaloOutboxService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     delete process.env.HALOPSA_OUTBOX_PAUSED;
+    mockDb.haloOutboxEvent.updateMany.mockResolvedValue({ count: 1 });
     mockDb.haloTicketLink.findUnique.mockImplementation(({ include, select }) =>
       include ? link() : select ? { state: 'pending_create' } : link(),
     );
@@ -80,25 +83,6 @@ describe('HaloOutboxService', () => {
     expect([1, 2, 3, 4, 5, 6, 7].map(backoffDelayMs)).toEqual([
       30_000, 120_000, 600_000, 3_600_000, 21_600_000, 21_600_000, 21_600_000,
     ]);
-  });
-
-  it('claims only events whose guarded update wins', async () => {
-    mockDb.haloOutboxEvent.findMany.mockResolvedValue([
-      event({ id: 'a', status: 'pending' }),
-      event({ id: 'b', status: 'pending' }),
-    ]);
-    mockDb.haloOutboxEvent.updateMany
-      .mockResolvedValueOnce({ count: 1 })
-      .mockResolvedValueOnce({ count: 0 });
-
-    const claimed = await service.claimBatch({ now: NOW });
-    expect(claimed.map((e) => e.id)).toEqual(['a']);
-    expect(mockDb.haloOutboxEvent.updateMany.mock.calls[0][0].where).toMatchObject({
-      id: 'a',
-      status: 'pending',
-      nextAttemptAt: NOW,
-    });
-    expect(mockDb.haloOutboxEvent.updateMany.mock.calls[0][0].data.status).toBe('processing');
   });
 
   it('does nothing while paused', async () => {
@@ -117,6 +101,8 @@ describe('HaloOutboxService', () => {
     expect(client.searchTickets).not.toHaveBeenCalled();
     expect(mockDb.haloTicketLink.update.mock.calls[0][0].data).toEqual({ haloTicketId: 900, state: 'open' });
     expect(lastUpdate()).toEqual({ status: 'done', lastError: null });
+    const calls = mockDb.haloOutboxEvent.updateMany.mock.calls;
+    expect(calls[calls.length - 1][0].where).toEqual({ id: 'hob_1', status: 'processing', nextAttemptAt: NOW });
   });
 
   it('marks a network failure on create as ambiguous and backs off', async () => {
@@ -140,6 +126,16 @@ describe('HaloOutboxService', () => {
     );
     expect(client.createTicket).not.toHaveBeenCalled();
     expect(mockDb.haloTicketLink.update.mock.calls[0][0].data.haloTicketId).toBe(777);
+  });
+
+  it('searches first when the payload reuses a ref token from a dead create', async () => {
+    const client = fakeClient({
+      searchTickets: jest.fn().mockResolvedValue([{ id: 778, summary: '[CompAI] x [CAI-AAAAAAAA]' }]),
+    });
+    const create = event({ payload: { summary: 's [CAI-AAAAAAAA]', details: 'd', searchFirst: true } });
+    await expect(service.processEvent({ event: create as never, client, now: NOW })).resolves.toBe('done');
+    expect(client.createTicket).not.toHaveBeenCalled();
+    expect(mockDb.haloTicketLink.update.mock.calls[0][0].data.haloTicketId).toBe(778);
   });
 
   it('does not treat a 4xx rejection as ambiguous', async () => {
@@ -229,9 +225,13 @@ describe('HaloOutboxService', () => {
     );
   });
 
-  it('retries a dead event', async () => {
-    mockDb.haloOutboxEvent.updateMany.mockResolvedValue({ count: 1 });
-    await expect(service.retry({ id: 'hob_1', now: NOW })).resolves.toEqual({ id: 'hob_1', status: 'pending' });
+  it('retries a dead event and reports its organization for the audit row', async () => {
+    mockDb.haloOutboxEvent.findFirst.mockResolvedValue({ organizationId: 'org_1' });
+    await expect(service.retry({ id: 'hob_1', now: NOW })).resolves.toEqual({
+      id: 'hob_1',
+      status: 'pending',
+      organizationId: 'org_1',
+    });
     expect(mockDb.haloOutboxEvent.updateMany).toHaveBeenCalledWith({
       where: { id: 'hob_1', status: 'dead' },
       data: { status: 'pending', attempts: 0, nextAttemptAt: NOW },

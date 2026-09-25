@@ -116,6 +116,9 @@ export class HaloDigestService {
             ...(settings.ticketTypeId ? { ticketTypeId: settings.ticketTypeId } : {}),
             ...(settings.teamId ? { teamId: settings.teamId } : {}),
             ...(settings.agentId ? { agentId: settings.agentId } : {}),
+            // Lets a create already in processing close itself if the next
+            // digest supersedes it before the ticket id is known.
+            ...(settings.resolvedStatusId ? { resolvedStatusId: settings.resolvedStatusId } : {}),
           },
         },
       });

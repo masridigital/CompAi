@@ -10,6 +10,7 @@ import {
   runAllChecks,
 } from '@trycompai/integration-platform';
 import { ConnectionRepository } from '../repositories/connection.repository';
+import { asRecord } from '../halopsa/halopsa-connection';
 import { ProviderRepository } from '../repositories/provider.repository';
 import { CredentialVaultService } from './credential-vault.service';
 import { OAuthCredentialsService } from './oauth-credentials.service';
@@ -77,6 +78,8 @@ export class ConnectionCheckRunnerService {
       connectionId,
       organizationId,
       checkId,
+      // Connection metadata, e.g. the admin-written HaloPSA client binding.
+      metadata: asRecord(connection.metadata),
       onTokenRefresh,
       logger: {
         info: (msg, data) => this.logger.log(msg, data),
@@ -133,6 +136,8 @@ export class ConnectionCheckRunnerService {
       variables,
       connectionId,
       organizationId,
+      // Connection metadata, e.g. the admin-written HaloPSA client binding.
+      metadata: asRecord(connection.metadata),
       onTokenRefresh,
       logger: {
         info: (msg, data) => this.logger.log(msg, data),

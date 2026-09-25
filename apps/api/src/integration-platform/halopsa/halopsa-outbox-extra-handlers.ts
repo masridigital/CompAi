@@ -35,7 +35,7 @@ export async function waitForPriorEvents(event: HaloOutboxEvent): Promise<void> 
 /** Plan 5.3: write the CFCompAI* client custom fields. Idempotent. */
 export async function executePushCustomFields(ctx: ExtraContext): Promise<void> {
   const payload = PushCustomFieldsPayloadSchema.parse(ctx.event.payload);
-  const mapping = await resolveMappingForConnection(ctx.link.connection);
+  const mapping = resolveMappingForConnection(ctx.link.connection);
   if (!mapping) {
     throw new HaloPermanentError(`Connection ${ctx.link.connectionId} has no valid Halo client mapping`);
   }

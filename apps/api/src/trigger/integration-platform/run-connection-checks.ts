@@ -1,4 +1,5 @@
 import { getManifest, runAllChecks } from '@trycompai/integration-platform';
+import { asRecord } from '../../integration-platform/halopsa/halopsa-connection';
 import { db } from '@db';
 import { logger, tags, task } from '@trigger.dev/sdk';
 import {
@@ -221,6 +222,8 @@ export const runConnectionChecks = task({
           variables,
           connectionId,
           organizationId,
+          // Connection metadata, e.g. the admin-written HaloPSA client binding.
+          metadata: asRecord(connection.metadata),
           onTokenRefresh:
             manifest.auth.type === 'oauth2' ? handleTokenRefresh : undefined,
           logger: {

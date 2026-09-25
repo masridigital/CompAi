@@ -1,14 +1,11 @@
 import { db, type IntegrationConnection } from '@db';
 import {
+  haloMappingFromMetadata,
   parseHaloAlertSettings,
-  resolveHaloConnectionMapping,
   type HaloAlertSettings,
   type HaloConnectionMapping,
 } from '@trycompai/integration-platform';
 import type { CheckVariableValues } from '@trycompai/integration-platform';
-import { ConnectionRepository } from '../repositories/connection.repository';
-import { CredentialRepository } from '../repositories/credential.repository';
-import { CredentialVaultService } from '../services/credential-vault.service';
 import { HALOPSA_PROVIDER_SLUG } from './halopsa.constants';
 
 export interface HaloOrgConnection {
@@ -57,22 +54,12 @@ export async function loadHaloOrgConnection(
 }
 
 /**
- * Resolve the Halo client/site for a connection without decrypting when
- * possible: metadata (written by the admin bind flow) and variables first,
- * then the encrypted credentials via the credential vault.
+ * The Halo client/site of a connection, read ONLY from the binding the
+ * platform-admin bind flow writes into metadata. Credentials and variables
+ * are customer-editable and are never consulted. Null when unbound.
  */
-export async function resolveMappingForConnection(
-  connection: Pick<IntegrationConnection, 'id' | 'metadata' | 'variables'>,
-): Promise<HaloConnectionMapping | null> {
-  const plain = resolveHaloConnectionMapping({
-    credentials: asRecord(connection.metadata),
-    variables: asRecord(connection.variables),
-  });
-  if (plain.success) return plain.data;
-
-  const vault = new CredentialVaultService(new CredentialRepository(), new ConnectionRepository());
-  const credentials = await vault.getDecryptedCredentials(connection.id);
-  if (!credentials) return null;
-  const resolved = resolveHaloConnectionMapping({ credentials });
-  return resolved.success ? resolved.data : null;
+export function resolveMappingForConnection(
+  connection: Pick<IntegrationConnection, 'metadata'>,
+): HaloConnectionMapping | null {
+  return haloMappingFromMetadata(connection.metadata);
 }

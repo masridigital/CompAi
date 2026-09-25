@@ -1,8 +1,17 @@
 jest.mock('@db', () => ({ db: {} }));
+const mockLoadConnection = jest.fn();
+jest.mock('./halopsa-connection', () => ({
+  loadHaloOrgConnection: (organizationId: string) => mockLoadConnection(organizationId),
+}));
 
 import { HaloAlertService } from './halopsa-alert.service';
 import { buildHaloCheckResults, haloOnTaskCheckRun } from './halopsa-check-hook';
-import { clearDeviceMarkersForTests } from './halopsa-device-tracker';
+import {
+  clearDeviceMarkersForTests,
+  deviceMarkerCountForTests,
+  MAX_MEMORY_MARKERS,
+  resolveNonCompliantSince,
+} from './halopsa-device-tracker';
 import {
   haloOnCheckResults,
   haloOnDeviceCompliance,
@@ -10,7 +19,7 @@ import {
   haloOnFindingStatusChanged,
   setHaloAlertServiceForTests,
 } from './halopsa-hooks';
-import { setHaloKvForTests } from './halopsa-kv';
+import { setHaloKvForTests, type HaloKv } from './halopsa-kv';
 
 function failingService() {
   const boom = jest.fn().mockRejectedValue(new Error('halo down'));
@@ -29,6 +38,10 @@ describe('HaloPSA hooks', () => {
   beforeEach(() => {
     setHaloKvForTests(null);
     clearDeviceMarkersForTests();
+    mockLoadConnection.mockResolvedValue({
+      connection: { id: 'icn_halo' },
+      settings: { enabledTriggers: ['device_noncompliant'] },
+    });
   });
   afterAll(() => {
     setHaloAlertServiceForTests(null);
@@ -43,6 +56,7 @@ describe('HaloPSA hooks', () => {
       haloOnCheckResults([
         {
           organizationId: 'org_1',
+          connectionId: 'icn_1',
           checkId: 'c',
           checkName: 'C',
           passed: false,
@@ -112,6 +126,48 @@ describe('HaloPSA hooks', () => {
     await haloOnDeviceCompliance({ ...input, compliant: true });
     expect(onDeviceCompliance.mock.calls[2][0].nonCompliantSince).toBeNull();
   });
+
+  it('does no KV or marker work when the org has no halopsa connection', async () => {
+    const kv = { get: jest.fn(), set: jest.fn(), del: jest.fn() };
+    setHaloKvForTests(kv as unknown as HaloKv);
+    mockLoadConnection.mockResolvedValue(null);
+    const onDeviceCompliance = jest.fn();
+    setHaloAlertServiceForTests({ onDeviceCompliance } as unknown as HaloAlertService);
+
+    await haloOnDeviceCompliance({ organizationId: 'o', deviceId: 'd', deviceName: 'MBP', compliant: false });
+    await haloOnDeviceCompliance({ organizationId: 'o', deviceId: 'd', deviceName: 'MBP', compliant: true });
+    expect(kv.set).not.toHaveBeenCalled();
+    expect(kv.del).not.toHaveBeenCalled();
+    expect(onDeviceCompliance).not.toHaveBeenCalled();
+  });
+
+  it('skips noncompliant devices when device_noncompliant is off but still resolves compliant ones', async () => {
+    const kv = { get: jest.fn(), set: jest.fn(), del: jest.fn() };
+    setHaloKvForTests(kv as unknown as HaloKv);
+    mockLoadConnection.mockResolvedValue({ connection: { id: 'icn_halo' }, settings: { enabledTriggers: [] } });
+    const onDeviceCompliance = jest.fn();
+    setHaloAlertServiceForTests({ onDeviceCompliance } as unknown as HaloAlertService);
+
+    await haloOnDeviceCompliance({ organizationId: 'o', deviceId: 'd', deviceName: 'MBP', compliant: false });
+    expect(kv.set).not.toHaveBeenCalled();
+    expect(onDeviceCompliance).not.toHaveBeenCalled();
+
+    await haloOnDeviceCompliance({ organizationId: 'o', deviceId: 'd', deviceName: 'MBP', compliant: true });
+    expect(onDeviceCompliance).toHaveBeenCalledWith(expect.objectContaining({ compliant: true }));
+  });
+
+  it('bounds the in-memory markers by TTL and size', async () => {
+    const start = new Date('2026-01-01T00:00:00.000Z');
+    await resolveNonCompliantSince({ deviceId: 'old', compliant: false, now: start });
+    const later = new Date(start.getTime() + 61 * 86_400_000);
+    // Expired after 60 days: a new streak starts.
+    await expect(resolveNonCompliantSince({ deviceId: 'old', compliant: false, now: later })).resolves.toEqual(later);
+
+    for (let i = 0; i < MAX_MEMORY_MARKERS + 5; i++) {
+      await resolveNonCompliantSince({ deviceId: `d${i}`, compliant: false, now: later });
+    }
+    expect(deviceMarkerCountForTests()).toBe(MAX_MEMORY_MARKERS);
+  });
 });
 
 describe('buildHaloCheckResults', () => {
@@ -136,6 +192,7 @@ describe('buildHaloCheckResults', () => {
 
     expect(results[0]).toMatchObject({
       checkId: 'mfa',
+      connectionId: 'icn_1',
       passed: false,
       severity: 'medium',
       remediation: 'Enable MFA',

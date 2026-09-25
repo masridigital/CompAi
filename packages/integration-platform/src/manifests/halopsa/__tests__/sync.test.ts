@@ -127,9 +127,19 @@ describe('syncHaloEmployees', () => {
     expect(usersCall?.searchParams.get('client_id')).toBe('7');
   });
 
-  it('throws when the connection is not mapped to a Halo client', async () => {
-    const { ctx } = makeCtx({ credentials: {} });
-    await expect(syncHaloEmployees({ ctx })).rejects.toThrow(/haloClientId/);
+  it('throws when the connection is not bound to a Halo client', async () => {
+    const { ctx } = makeCtx({ metadata: {} });
+    await expect(syncHaloEmployees({ ctx })).rejects.toThrow(/not bound/);
+  });
+
+  it('never syncs a client id taken from credentials or variables', async () => {
+    const { ctx } = makeCtx({
+      credentials: { haloClientId: '99' },
+      variables: { haloClientId: 99 },
+      metadata: {},
+    });
+    await expect(syncHaloEmployees({ ctx })).rejects.toThrow(/not bound/);
+    expect(halo.requests.some((u) => u.pathname === '/api/Users')).toBe(false);
   });
 
   it('propagates Halo API errors so nobody is deactivated', async () => {

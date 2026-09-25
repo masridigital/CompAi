@@ -62,6 +62,11 @@ import {
   validateAwsPartitionConfig,
 } from '../../cloud-security/aws-partition.utils';
 import { getProviderSummary } from '../utils/provider-summary';
+import {
+  assertCustomerMayCreateConnection,
+  assertCustomerMayUpdateCredentials,
+  assertCustomerMayUpdateMetadata,
+} from '../halopsa/halopsa-managed-connection';
 
 // Class (not interface) so @nestjs/swagger can introspect it — interfaces are
 // erased at runtime and produce an empty OpenAPI body schema, which means MCP
@@ -588,6 +593,8 @@ export class ConnectionsController {
     @Body() body: CreateConnectionDto,
   ) {
     const { providerSlug, credentials } = body;
+    // HaloPSA client bindings are set by the platform admin only.
+    assertCustomerMayCreateConnection(providerSlug);
 
     // Validate provider
     const manifest = getManifest(providerSlug);
@@ -1076,6 +1083,10 @@ export class ConnectionsController {
       id,
       organizationId,
     );
+    assertCustomerMayUpdateMetadata({
+      providerSlug: getProviderSummary(connection)?.slug,
+      metadata: body.metadata,
+    });
 
     if (body.metadata && Object.keys(body.metadata).length > 0) {
       // Merge with existing metadata
@@ -1375,6 +1386,8 @@ export class ConnectionsController {
         HttpStatus.NOT_FOUND,
       );
     }
+
+    assertCustomerMayUpdateCredentials(providerSlug);
 
     // Only allow updating credentials for non-OAuth integrations
     if (manifest.auth.type === 'oauth2') {

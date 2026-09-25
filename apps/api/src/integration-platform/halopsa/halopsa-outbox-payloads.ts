@@ -11,6 +11,8 @@ export const CreateTicketPayloadSchema = z.object({
   teamId: optionalId,
   agentId: optionalId,
   resolvedStatusId: optionalId,
+  /** The link's ref token may already be on a Halo ticket (earlier create died ambiguously). */
+  searchFirst: z.boolean().optional(),
 });
 export type CreateTicketPayloadData = z.infer<typeof CreateTicketPayloadSchema>;
 
