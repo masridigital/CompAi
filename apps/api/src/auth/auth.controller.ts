@@ -15,7 +15,11 @@ import { PermissionGuard } from './permission.guard';
 import { RequirePermission } from './require-permission.decorator';
 import { AuthContext } from './auth-context.decorator';
 import { HybridAuthGuard } from './hybrid-auth.guard';
-import { isMfaSetupRequired } from './mfa-policy';
+import {
+  isMfaEnforcementEnabled,
+  isMfaSetupRequired,
+  roleRequiresMfa,
+} from './mfa-policy';
 import { SkipOrgCheck } from './skip-org-check.decorator';
 import type { AuthContext as AuthContextType } from './types';
 
@@ -103,6 +107,8 @@ export class AuthController {
           role: user?.role,
           twoFactorEnabled: user?.twoFactorEnabled,
         }),
+        // Staff under enforcement may rotate backup codes but not disable 2FA.
+        enforced: isMfaEnforcementEnabled() && roleRequiresMfa(user?.role),
       },
     };
   }

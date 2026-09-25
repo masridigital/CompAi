@@ -9,14 +9,7 @@ export const metadata: Metadata = {
 
 interface AuthMeResponse {
   user: { role: string | null } | null;
-  mfa?: { enabled: boolean; required: boolean };
-}
-
-const STAFF_ROLES = ['admin', 'msp_staff'];
-
-function isStaffRole(role: string | null | undefined): boolean {
-  if (!role) return false;
-  return role.split(',').some((r) => STAFF_ROLES.includes(r.trim()));
+  mfa?: { enabled: boolean; required: boolean; enforced?: boolean };
 }
 
 /**
@@ -26,8 +19,7 @@ function isStaffRole(role: string | null | undefined): boolean {
  */
 export default async function TwoFactorPage() {
   const meRes = await serverApi.get<AuthMeResponse>('/v1/auth/me');
-  const mfa = meRes.data?.mfa ?? { enabled: false, required: false };
-  const staff = isStaffRole(meRes.data?.user?.role);
+  const mfa = meRes.data?.mfa ?? { enabled: false, required: false, enforced: false };
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-12">
@@ -37,7 +29,11 @@ export default async function TwoFactorPage() {
           Manage two-factor authentication for your Comp AI account.
         </p>
       </div>
-      <TwoFactorSetup enabled={mfa.enabled} canDisable={!staff} required={mfa.required} />
+      <TwoFactorSetup
+        enabled={mfa.enabled}
+        canDisable={mfa.enforced !== true}
+        required={mfa.required}
+      />
       {!mfa.required ? (
         <Link href="/" className="text-sm text-primary underline-offset-4 hover:underline">
           Back to the app
