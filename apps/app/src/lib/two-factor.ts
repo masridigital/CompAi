@@ -19,6 +19,12 @@ export const backupCodeSchema = z.object({
 });
 export type BackupCodeValues = z.infer<typeof backupCodeSchema>;
 
+export const disableTwoFactorSchema = z.discriminatedUnion('method', [
+  z.object({ method: z.literal('totp'), code: totpCodeSchema.shape.code }),
+  z.object({ method: z.literal('backup'), code: backupCodeSchema.shape.code }),
+]);
+export type DisableTwoFactorValues = z.infer<typeof disableTwoFactorSchema>;
+
 /** True when an API error body is the staff-MFA 403. */
 export function isMfaRequiredBody(body: unknown): boolean {
   return (

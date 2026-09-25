@@ -6,10 +6,19 @@ const mocks = vi.hoisted(() => ({
   verifyTotp: vi.fn(),
   generateBackupCodes: vi.fn(),
   disable: vi.fn(),
+  $fetch: vi.fn(),
 }));
 
 vi.mock('@/utils/auth-client', () => ({
-  authClient: { twoFactor: mocks },
+  authClient: {
+    twoFactor: {
+      enable: mocks.enable,
+      verifyTotp: mocks.verifyTotp,
+      generateBackupCodes: mocks.generateBackupCodes,
+      disable: mocks.disable,
+    },
+    $fetch: mocks.$fetch,
+  },
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('qrcode.react', () => ({
@@ -120,5 +129,72 @@ describe('TwoFactorSetup', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Generate new backup codes' }));
 
     expect(await screen.findByText('cccc-3333')).toBeTruthy();
+  });
+
+  it('staff under enforcement can only rotate codes and see why', () => {
+    render(<TwoFactorSetup enabled canDisable={false} required={false} />);
+    expect(screen.queryByRole('button', { name: 'Turn off' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Generate new backup codes' })).toBeTruthy();
+    expect(screen.getByText(/Staff accounts must keep two-factor/)).toBeTruthy();
+  });
+
+  describe('turning 2FA off', () => {
+    function openDisableForm() {
+      render(<TwoFactorSetup enabled canDisable required={false} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Turn off' }));
+    }
+
+    function submit(label: string, value: string) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value } });
+      fireEvent.click(screen.getByRole('button', { name: 'Turn off two-factor authentication' }));
+    }
+
+    it('requires a valid authenticator code before calling the API', async () => {
+      openDisableForm();
+      submit('Authentication code', '12');
+      expect(
+        await screen.findByText('Enter the 6-digit code from your authenticator app'),
+      ).toBeTruthy();
+      expect(mocks.$fetch).not.toHaveBeenCalled();
+      expect(mocks.disable).not.toHaveBeenCalled();
+    });
+
+    it('sends the TOTP code to the disable endpoint', async () => {
+      mocks.$fetch.mockResolvedValue({ data: { status: true }, error: null });
+      openDisableForm();
+      submit('Authentication code', '123456');
+
+      await screen.findByRole('button', { name: 'Set up two-factor authentication' });
+      expect(mocks.$fetch).toHaveBeenCalledWith('/two-factor/disable', {
+        method: 'POST',
+        body: { code: '123456' },
+      });
+    });
+
+    it('accepts a backup code instead', async () => {
+      mocks.$fetch.mockResolvedValue({ data: { status: true }, error: null });
+      openDisableForm();
+      fireEvent.click(screen.getByRole('button', { name: 'Use a backup code' }));
+      submit('Backup code', 'aaaa-1111');
+
+      await waitFor(() =>
+        expect(mocks.$fetch).toHaveBeenCalledWith('/two-factor/disable', {
+          method: 'POST',
+          body: { backupCode: 'aaaa-1111' },
+        }),
+      );
+    });
+
+    it('stays on and shows the API error for a wrong code', async () => {
+      mocks.$fetch.mockResolvedValue({
+        data: null,
+        error: { message: 'Invalid authenticator or backup code.' },
+      });
+      openDisableForm();
+      submit('Authentication code', '000000');
+
+      expect(await screen.findByText('Invalid authenticator or backup code.')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Set up two-factor authentication' })).toBeNull();
+    });
   });
 });

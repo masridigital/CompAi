@@ -280,6 +280,7 @@ describe('HybridAuthGuard — MCP OAuth path', () => {
       id: 'usr_4',
       email: 'staff@trycomp.ai',
       role: 'admin',
+      twoFactorEnabled: true,
     });
     mockMemberFindMany.mockResolvedValue([
       { id: 'mem_4', role: 'owner', department: 'none', organizationId: 'org_1' },
@@ -301,6 +302,7 @@ describe('HybridAuthGuard — MCP OAuth path', () => {
       id: 'usr_pa',
       email: 'staff@trycomp.ai',
       role: 'admin',
+      twoFactorEnabled: true,
     });
     mockMemberFindMany.mockResolvedValue([
       { id: 'mem_pa', role: 'employee', department: 'none', organizationId: 'org_1' },
@@ -321,6 +323,7 @@ describe('HybridAuthGuard — MCP OAuth path', () => {
       id: 'usr_t',
       email: 'tech@msp.com',
       role: 'msp_staff',
+      twoFactorEnabled: true,
     });
     mockMemberFindMany.mockResolvedValue([
       { id: 'mem_t', role: 'msp_tech', department: 'it', organizationId: 'org_1' },
@@ -343,6 +346,7 @@ describe('HybridAuthGuard — MCP OAuth path', () => {
       id: 'usr_t2',
       email: 'tech2@msp.com',
       role: 'msp_staff',
+      twoFactorEnabled: true,
     });
     mockMemberFindMany.mockResolvedValue([
       { id: 'mem_t2', role: 'employee', department: 'none', organizationId: 'org_1' },

@@ -8,10 +8,11 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { BackupCodesPanel } from './BackupCodesPanel';
+import { DisableTwoFactorForm } from './DisableTwoFactorForm';
 
 interface TwoFactorSetupProps {
   enabled: boolean;
-  /** Staff accounts must keep 2FA on, so they cannot disable it here. */
+  /** Staff under enforcement must keep 2FA on; they may only rotate codes. */
   canDisable: boolean;
   required: boolean;
 }
@@ -25,6 +26,7 @@ export function TwoFactorSetup({ enabled, canDisable, required }: TwoFactorSetup
   const [step, setStep] = useState<Step>({ kind: 'idle' });
   const [isEnabled, setIsEnabled] = useState(enabled);
   const [busy, setBusy] = useState(false);
+  const [disabling, setDisabling] = useState(false);
 
   const handleEnable = async () => {
     setBusy(true);
@@ -57,15 +59,9 @@ export function TwoFactorSetup({ enabled, canDisable, required }: TwoFactorSetup
     setStep({ kind: 'done', backupCodes: data.backupCodes });
   };
 
-  const handleDisable = async () => {
-    setBusy(true);
-    const { error } = await authClient.twoFactor.disable({});
-    setBusy(false);
-    if (error) {
-      toast.error(error.message ?? 'Could not turn off two-factor authentication');
-      return;
-    }
+  const handleDisabled = () => {
     setIsEnabled(false);
+    setDisabling(false);
     setStep({ kind: 'idle' });
     toast.success('Two-factor authentication is off');
   };
@@ -134,24 +130,36 @@ export function TwoFactorSetup({ enabled, canDisable, required }: TwoFactorSetup
             </Text>
           </div>
         ) : null}
-        {isEnabled ? (
-          <HStack gap="sm" wrap="wrap">
-            <Button type="button" variant="outline" loading={busy} onClick={handleRegenerate}>
-              Generate new backup codes
-            </Button>
-            {canDisable ? (
-              <Button type="button" variant="destructive" loading={busy} onClick={handleDisable}>
-                Turn off
+        {isEnabled && disabling ? (
+          <DisableTwoFactorForm onDisabled={handleDisabled} onCancel={() => setDisabling(false)} />
+        ) : null}
+        {isEnabled && !disabling ? (
+          <Stack gap="sm">
+            <HStack gap="sm" wrap="wrap">
+              <Button type="button" variant="outline" loading={busy} onClick={handleRegenerate}>
+                Generate new backup codes
               </Button>
+              {canDisable ? (
+                <Button type="button" variant="destructive" onClick={() => setDisabling(true)}>
+                  Turn off
+                </Button>
+              ) : null}
+            </HStack>
+            {!canDisable ? (
+              <Text size="sm" variant="muted">
+                Staff accounts must keep two-factor authentication on. You can rotate your backup
+                codes at any time.
+              </Text>
             ) : null}
-          </HStack>
-        ) : (
+          </Stack>
+        ) : null}
+        {!isEnabled ? (
           <div>
             <Button type="button" loading={busy} onClick={handleEnable}>
               Set up two-factor authentication
             </Button>
           </div>
-        )}
+        ) : null}
       </Stack>
     </Card>
   );

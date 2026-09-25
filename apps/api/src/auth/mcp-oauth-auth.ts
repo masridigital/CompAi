@@ -2,6 +2,7 @@ import { ForbiddenException, Logger } from '@nestjs/common';
 import { db } from '@db';
 import { hasAppAccess } from './app-access';
 import { auth } from './auth.server';
+import { assertStaffMfa, requestPath } from './mfa-policy';
 import { AuthenticatedRequest } from './types';
 
 /**
@@ -42,11 +43,19 @@ export async function authenticateMcpOAuth({
   const userId = token.userId;
   const user = await db.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, role: true },
+    select: { id: true, email: true, role: true, twoFactorEnabled: true },
   });
   if (!user) {
     return false;
   }
+
+  // S6: staff (admin / msp_staff) without 2FA get the same 403 MFA_REQUIRED
+  // as on the cookie-session path.
+  assertStaffMfa({
+    role: user.role,
+    twoFactorEnabled: user.twoFactorEnabled,
+    path: requestPath(request),
+  });
 
   request.userId = user.id;
   request.userEmail = user.email;
