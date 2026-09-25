@@ -14,6 +14,7 @@ export function AdminSidebar({ orgId }: AdminSidebarProps) {
   const items = [
     { id: 'organizations', label: 'Organizations', path: `/${orgId}/admin/organizations` },
     { id: 'integrations', label: 'Integrations', path: `/${orgId}/admin/integrations` },
+    { id: 'halopsa', label: 'HaloPSA', path: `/${orgId}/admin/halopsa` },
     {
       id: 'timeline-templates',
       label: 'Timeline Templates',
