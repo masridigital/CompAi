@@ -7,7 +7,10 @@ jest.mock('better-auth/api', () => ({
   createAuthMiddleware: (handler: unknown) => handler,
   getSessionFromCtx: jest.fn(),
 }));
-jest.mock('better-auth/crypto', () => ({ symmetricDecrypt: jest.fn() }));
+jest.mock('better-auth/crypto', () => ({
+  symmetricDecrypt: jest.fn(),
+  symmetricEncrypt: jest.fn(),
+}));
 
 import {
   DISABLE_PATH,
@@ -105,7 +108,7 @@ describe('two-factor disable guard (S6)', () => {
         proof: { backupCode: 'bbbb-2222' },
         stored: STORED,
       }),
-    ).resolves.toEqual({ allowed: true });
+    ).resolves.toEqual({ allowed: true, backupCode: 'bbbb-2222' });
     await expect(
       decideDisable({
         role: null,
@@ -137,5 +140,23 @@ describe('two-factor disable guard (S6)', () => {
     const matcher = hooks[0].matcher as (ctx: { path?: string }) => boolean;
     expect(matcher({ path: DISABLE_PATH })).toBe(true);
     expect(matcher({ path: '/two-factor/generate-backup-codes' })).toBe(false);
+  });
+
+  it('refuses with TOO_MANY_REQUESTS while locked, without verifying', async () => {
+    await expect(
+      decideDisable({
+        role: 'user',
+        proof: { code: '123456' },
+        stored: STORED,
+        locked: true,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        allowed: false,
+        status: 'TOO_MANY_REQUESTS',
+        code: 'ACCOUNT_TEMPORARILY_LOCKED',
+      }),
+    );
+    expect(mockVerify).not.toHaveBeenCalled();
   });
 });

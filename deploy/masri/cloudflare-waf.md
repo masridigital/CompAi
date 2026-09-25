@@ -2,6 +2,8 @@
 
 Add these rules in Security > WAF > Custom rules, in this order. Each expression uses the Cloudflare Rules language.
 
+Every path match wraps the path in `lower()`. Express routes are case-insensitive, so `/V1/Admin/` reaches the same handler as `/v1/admin/`. Without `lower()`, a request with different casing skips the rule.
+
 ## 1. Block non-API methods on the frontends
 
 - **Action:** Block
@@ -20,7 +22,7 @@ Add these rules in Security > WAF > Custom rules, in this order. Each expression
 
 ```
 (http.host eq "api.compliance.masri.tech"
- and starts_with(http.request.uri.path, "/v1/integrations/halopsa/webhooks/")
+ and starts_with(lower(http.request.uri.path), "/v1/integrations/halopsa/webhooks/")
  and (http.request.method ne "POST"
       or not any(starts_with(http.request.headers["authorization"][*], "Bearer "))))
 ```
@@ -29,11 +31,13 @@ Add these rules in Security > WAF > Custom rules, in this order. Each expression
 
 - **Action:** Block
 - **Before you use it:** Replace `$masri_admin_ips` with a Cloudflare IP list of office and VPN egress IPs. Skip this rule if techs work from changing networks.
+- **Scope:** covers the platform admin API (`/v1/admin/*`) and better-auth's admin endpoints (`/api/auth/admin/*`: impersonate, set role, ban).
 - **Expression:**
 
 ```
 (http.host eq "api.compliance.masri.tech"
- and starts_with(http.request.uri.path, "/v1/admin/")
+ and (starts_with(lower(http.request.uri.path), "/v1/admin/")
+      or starts_with(lower(http.request.uri.path), "/api/auth/admin/"))
  and not ip.src in $masri_admin_ips)
 ```
 
@@ -45,7 +49,7 @@ Add these rules in Security > WAF > Custom rules, in this order. Each expression
 
 ```
 (http.host eq "api.compliance.masri.tech"
- and starts_with(http.request.uri.path, "/v1/internal/")
+ and starts_with(lower(http.request.uri.path), "/v1/internal/")
  and not ip.src in $trigger_egress_ips)
 ```
 
@@ -57,14 +61,14 @@ Add these in Security > WAF > Rate limiting rules.
 
 | Name | Expression | Limit | Action |
 |---|---|---|---|
-| Login | `http.host eq "api.compliance.masri.tech" and starts_with(http.request.uri.path, "/api/auth/")` | 30 requests / 1 min / IP | Managed challenge, 10 min |
-| Halo webhook | `http.host eq "api.compliance.masri.tech" and starts_with(http.request.uri.path, "/v1/integrations/halopsa/webhooks/")` | 300 requests / 1 min / IP | Block, 10 min |
+| Login | `http.host eq "api.compliance.masri.tech" and starts_with(lower(http.request.uri.path), "/api/auth/")` | 30 requests / 1 min / IP | Managed challenge, 10 min |
+| Halo webhook | `http.host eq "api.compliance.masri.tech" and starts_with(lower(http.request.uri.path), "/v1/integrations/halopsa/webhooks/")` | 300 requests / 1 min / IP | Block, 10 min |
 | API general | `http.host eq "api.compliance.masri.tech"` | 1200 requests / 1 min / IP | Block, 1 min |
 
 ## Managed rules
 
 - Turn on the Cloudflare Managed Ruleset and the OWASP Core Ruleset (paranoia level 1, action Block) for all three hosts.
-- If you see false positives on large JSON bodies (policy editor, questionnaires), add a skip rule for `http.host eq "api.compliance.masri.tech" and http.request.uri.path contains "/v1/policies/"`. Do not turn the ruleset off.
+- If you see false positives on large JSON bodies (policy editor, questionnaires), add a skip rule for `http.host eq "api.compliance.masri.tech" and lower(http.request.uri.path) contains "/v1/policies/"`. Do not turn the ruleset off.
 
 ## Validation
 

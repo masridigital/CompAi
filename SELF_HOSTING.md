@@ -47,6 +47,18 @@ In the app and portal, set `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_PORTAL_URL` and `
 
 Keep `AUTH_COOKIE_DOMAIN` as narrow as possible. Every host under it receives the session cookie, so never use a parent domain that also serves third-party or unrelated hosts.
 
+### Service-token org signing
+
+Internal callers (Trigger.dev workers, portal, trust site) authenticate to the API with `SERVICE_TOKEN_<SERVICE>` and sign the `x-organization-id` they act on with `SERVICE_TOKEN_SIGNING_SECRET_<SERVICE>` (`_TRIGGER`, `_PORTAL`, `_TRUST`). Each secret must be identical on the API and on that caller. Generate each with `openssl rand -hex 32`.
+
+Roll it out in this order:
+
+1. **API first.** Set `SERVICE_TOKEN_SIGNING_SECRET_TRIGGER`, `_PORTAL` and `_TRUST` on the API and deploy it. Leave `SERVICE_TOKEN_REQUIRE_ORG_SIGNATURE` unset (or `false`). Unsigned calls are still accepted with a warning.
+2. **Callers.** Set the matching secret on the app and its Trigger.dev environment (`_TRIGGER`), the portal (`_PORTAL`) and the trust site (`_TRUST`), then deploy each. From now on, the API verifies every signed call and rejects an invalid signature.
+3. **Enforce.** Once the API logs no more "called without a signed org claim" warnings, set `SERVICE_TOKEN_REQUIRE_ORG_SIGNATURE=true` on the API. It then rejects unsigned calls, and signed calls for a service whose secret is missing on the API.
+
+If a caller is deployed with its secret before the API has it, the API accepts the signed call unverified and logs a warning (`... is not set; accepting UNVERIFIED org claim`) while enforcement is off. With enforcement on, it returns 401.
+
 ### Email
 
 All email is sent by the API through a provider-agnostic transport (`packages/email/lib/transport`).

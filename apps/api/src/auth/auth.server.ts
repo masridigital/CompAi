@@ -39,6 +39,7 @@ import {
   getBetterAuthTrustedOrigins,
   isStaticTrustedOrigin,
 } from './origin-policy';
+import { staffMfaAuthGuard } from './staff-mfa-auth-guard';
 import { twoFactorDisableGuard } from './two-factor-disable-guard';
 import { mfaSignInChallenge, twoFactorPlugin } from './two-factor.config';
 
@@ -543,6 +544,8 @@ export const auth = betterAuth({
     twoFactorPlugin(),
     mfaSignInChallenge(),
     twoFactorDisableGuard(),
+    // Staff without 2FA cannot call /admin/* or organization mutations.
+    staffMfaAuthGuard(),
     // OAuth 2.0 / OIDC provider for hosted MCP (Gram). Wraps oidcProvider and
     // exposes /api/auth/mcp/* (authorize, token, register) + the two
     // /api/auth/.well-known/* discovery docs, plus the auth.api.getMcpSession()

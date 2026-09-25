@@ -24,9 +24,15 @@ function headerValue(
 }
 
 /**
- * Enforce the HMAC-signed org claim (S1). A present signature is always
- * verified; a missing one is rejected only when
- * SERVICE_TOKEN_REQUIRE_ORG_SIGNATURE=true.
+ * Enforce the HMAC-signed org claim (S1).
+ *
+ * - No claim: rejected only when SERVICE_TOKEN_REQUIRE_ORG_SIGNATURE=true.
+ * - Claim present and the API has the service's signing secret: always
+ *   verified; an invalid claim is rejected.
+ * - Claim present but the API has no secret for that service: accepted with a
+ *   warning while enforcement is off. This keeps the rollout order safe when
+ *   a caller is configured with its secret before the API is (see
+ *   SELF_HOSTING.md); with enforcement on it is a misconfiguration → 401.
  */
 export function assertOrgClaim({
   request,
@@ -55,6 +61,12 @@ export function assertOrgClaim({
 
   const secret = process.env[definition.signingSecretEnvVar];
   if (!secret) {
+    if (!isOrgSignatureRequired()) {
+      logger.warn(
+        `${definition.signingSecretEnvVar} is not set; accepting UNVERIFIED org claim from "${definition.name}" (org ${organizationId}). Configure the secret on the API.`,
+      );
+      return;
+    }
     logger.error(
       `${definition.signingSecretEnvVar} is not set; cannot verify org claim for "${definition.name}"`,
     );

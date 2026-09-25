@@ -93,7 +93,8 @@ export function resolveServiceByName(
  * Whether every service-token request must carry a valid signed org claim.
  * Defaults to false so callers outside this repo (the trust site) keep working
  * until they sign their requests. A signature that IS present is always
- * verified, regardless of this flag.
+ * verified when the API has that service's signing secret; without the
+ * secret it is accepted with a warning unless this flag is on.
  */
 export function isOrgSignatureRequired(): boolean {
   return process.env.SERVICE_TOKEN_REQUIRE_ORG_SIGNATURE === 'true';
