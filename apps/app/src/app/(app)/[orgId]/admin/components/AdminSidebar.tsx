@@ -1,5 +1,6 @@
 'use client';
 
+import { MSP_PANE_PATH } from '@/lib/msp-access';
 import { AppShellNav, AppShellNavItem } from '@trycompai/design-system';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -12,6 +13,8 @@ export function AdminSidebar({ orgId }: AdminSidebarProps) {
   const pathname = usePathname() ?? '';
 
   const items = [
+    // MSP master pane (outside /[orgId]): every client tenant at once.
+    { id: 'msp', label: 'All clients', path: MSP_PANE_PATH },
     { id: 'organizations', label: 'Organizations', path: `/${orgId}/admin/organizations` },
     { id: 'integrations', label: 'Integrations', path: `/${orgId}/admin/integrations` },
     { id: 'halopsa', label: 'HaloPSA', path: `/${orgId}/admin/halopsa` },

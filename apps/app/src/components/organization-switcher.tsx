@@ -1,8 +1,10 @@
 'use client';
 
+import { isMspStaffRole, MSP_PANE_PATH } from '@/lib/msp-access';
 import type { OrganizationFromMe } from '@/types';
 import { authClient } from '@/utils/auth-client';
-import { OrganizationSelector } from '@trycompai/design-system';
+import { Button, OrganizationSelector } from '@trycompai/design-system';
+import { Add, Enterprise } from '@trycompai/design-system/icons';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -46,6 +48,8 @@ export function OrganizationSwitcher({
   modal = true,
 }: OrganizationSwitcherProps) {
   const router = useRouter();
+  const { data: session } = authClient.useSession();
+  const showAllClients = isMspStaffRole(session?.user?.role);
 
   const [isSwitching, setIsSwitching] = useState(false);
 
@@ -77,6 +81,34 @@ export function OrganizationSwitcher({
 
   const isExecuting = isSwitching;
 
+  const handleOpenAllClients = () => {
+    router.push(MSP_PANE_PATH);
+  };
+
+  // MSP staff / platform admins get an "All clients" entry (the master pane)
+  // above the create action. Everyone else keeps the default footer.
+  const mspFooter = showAllClients ? (
+    <div className="flex flex-col items-start gap-1">
+      <Button
+        size="sm"
+        variant="ghost"
+        iconLeft={<Enterprise size={16} />}
+        onClick={handleOpenAllClients}
+      >
+        All clients
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        iconLeft={<Add size={16} />}
+        disabled={isExecuting}
+        onClick={handleCreateOrganization}
+      >
+        Create organization
+      </Button>
+    </div>
+  ) : undefined;
+
   return (
     <OrganizationSelector
       organizations={selectorOrgs}
@@ -84,6 +116,7 @@ export function OrganizationSwitcher({
       onValueChange={handleOrgChange}
       createLabel="Create organization"
       onCreate={handleCreateOrganization}
+      footer={mspFooter}
       loading={isExecuting}
       modal={modal}
       placeholder="Select organization"
