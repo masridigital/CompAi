@@ -1,0 +1,101 @@
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { db } from '@db';
+import { FrameworksService } from '../../frameworks/frameworks.service';
+
+export interface ProvisionOrganizationInput {
+  name: string;
+  website?: string | null;
+  /** User who becomes the org owner (the acting platform admin). */
+  ownerUserId: string;
+  frameworkIds?: string[];
+}
+
+function normalizeWebsite(website: string | null | undefined): string | null {
+  const raw = (website ?? '').trim();
+  if (!raw) return null;
+  const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    return new URL(withScheme).toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Minimal API-side organization creation for admin provisioning (e.g.
+ * "Create org from Halo client"). Mirrors the core of the app's
+ * createOrganizationMinimal + initializeOrganization: org + owner member +
+ * onboarding record, then the framework structure via
+ * FrameworksService.addFrameworks (the same upsert the app uses).
+ * Onboarding questions are left for the owner to complete in the app.
+ */
+@Injectable()
+export class OrganizationProvisioningService {
+  private readonly logger = new Logger(OrganizationProvisioningService.name);
+
+  constructor(private readonly frameworksService: FrameworksService) {}
+
+  async provision(input: ProvisionOrganizationInput): Promise<{ organizationId: string }> {
+    const name = input.name.trim();
+    if (name.length < 2) throw new BadRequestException('Organization name must be at least 2 characters');
+    const frameworkIds = [...new Set(input.frameworkIds ?? [])];
+
+    const frameworkNames = frameworkIds.length
+      ? (
+          await db.frameworkEditorFramework.findMany({
+            where: { id: { in: frameworkIds }, visible: true },
+            select: { name: true },
+          })
+        ).map((f) => f.name)
+      : [];
+
+    const organization = await db.$transaction(async (tx) => {
+      const org = await tx.organization.create({
+        data: {
+          name,
+          website: normalizeWebsite(input.website),
+          onboardingCompleted: false,
+          hasAccess: true,
+          members: { create: { userId: input.ownerUserId, role: 'owner' } },
+          ...(frameworkIds.length
+            ? {
+                context: {
+                  createMany: {
+                    data: [
+                      {
+                        question: 'Which compliance frameworks do you need?',
+                        answer: frameworkNames.join(', ') || frameworkIds.join(', '),
+                        tags: ['onboarding'],
+                      },
+                      {
+                        question: 'frameworkIds',
+                        answer: JSON.stringify(frameworkIds),
+                        tags: ['onboarding'],
+                      },
+                    ],
+                  },
+                },
+              }
+            : {}),
+        },
+        select: { id: true },
+      });
+      await tx.onboarding.create({ data: { organizationId: org.id, triggerJobCompleted: false } });
+      return org;
+    });
+
+    if (frameworkIds.length > 0) {
+      try {
+        await this.frameworksService.addFrameworks(organization.id, frameworkIds);
+      } catch (error) {
+        // Keep the org: frameworks can be added later from the app.
+        this.logger.warn(
+          `Org ${organization.id} created but frameworks failed to initialize: ${String(error)}`,
+        );
+      }
+    }
+
+    this.logger.log(`Provisioned organization ${organization.id} (${name})`);
+    return { organizationId: organization.id };
+  }
+}

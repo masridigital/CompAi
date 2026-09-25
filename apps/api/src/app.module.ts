@@ -38,6 +38,7 @@ import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
 import { SOAModule } from './soa/soa.module';
 import { IsmsModule } from './isms/isms.module';
 import { IntegrationPlatformModule } from './integration-platform/integration-platform.module';
+import { HaloPsaModule } from './integration-platform/halopsa/halopsa.module';
 import { CloudSecurityModule } from './cloud-security/cloud-security.module';
 import { BrowserbaseModule } from './browserbase/browserbase.module';
 import { TaskManagementModule } from './task-management/task-management.module';
@@ -112,6 +113,7 @@ import { OffboardingChecklistModule } from './offboarding-checklist/offboarding-
     SOAModule,
     IsmsModule,
     IntegrationPlatformModule,
+    HaloPsaModule,
     CloudSecurityModule,
     BrowserbaseModule,
     TaskManagementModule,
