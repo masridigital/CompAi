@@ -10,6 +10,7 @@ import { GenericEmployeeSyncService } from '../services/generic-employee-sync.se
 import { GenericDeviceSyncService } from '../services/generic-device-sync.service';
 import { DynamicIntegrationRepository } from '../repositories/dynamic-integration.repository';
 import { CheckRunRepository } from '../repositories/check-run.repository';
+import { halopsaManifest } from '@trycompai/integration-platform';
 
 const mockConnectionFindMany = jest.fn();
 const mockGetActiveManifests = jest.fn();
@@ -199,5 +200,46 @@ describe('SyncController - getAvailableSyncProviders connection status', () => {
         connectionId: null,
       }),
     ]);
+  });
+
+  describe('opt-in employee sync providers (HaloPSA)', () => {
+    const googleManifest = {
+      id: 'google-workspace',
+      name: 'Google Workspace',
+      logoUrl: 'https://example.com/gws.png',
+      capabilities: ['checks', 'sync'],
+    };
+
+    beforeEach(() => {
+      mockGetActiveManifests.mockReturnValue([googleManifest, halopsaManifest]);
+    });
+
+    it('hides halopsa when the org has no active halopsa connection', async () => {
+      mockConnectionFindMany.mockResolvedValue([
+        { id: 'icn_halo', status: 'error', lastSyncAt: null, nextSyncAt: null, provider: { slug: 'halopsa' } },
+      ]);
+
+      const result = await controller.getAvailableSyncProviders(orgId, 'employee');
+
+      expect(result.providers.map((p) => p.slug)).toEqual(['google-workspace']);
+    });
+
+    it('lists halopsa once the org has an active halopsa connection', async () => {
+      mockConnectionFindMany.mockResolvedValue([
+        { id: 'icn_halo', status: 'active', lastSyncAt: null, nextSyncAt: null, provider: { slug: 'halopsa' } },
+      ]);
+
+      const result = await controller.getAvailableSyncProviders(orgId, 'employee');
+
+      expect(result.providers).toEqual([
+        expect.objectContaining({ slug: 'google-workspace', connected: false }),
+        expect.objectContaining({
+          slug: 'halopsa',
+          connected: true,
+          connectionStatus: 'active',
+          connectionId: 'icn_halo',
+        }),
+      ]);
+    });
   });
 });

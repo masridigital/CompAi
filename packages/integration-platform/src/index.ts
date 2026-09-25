@@ -197,6 +197,15 @@ export type {
   SearchTicketsInput,
 } from './manifests/halopsa';
 
+// Code-based employee sync (HaloPSA client contacts -> People, plan 5.1)
+export type { CodeEmployeeSync } from './types';
+export {
+  DEFAULT_SYNC_EXCLUDE_PATTERNS,
+  mapHaloUsersToEmployees,
+  parseSyncExcludePatterns,
+  syncHaloEmployees,
+} from './manifests/halopsa';
+
 // API Response types (for frontend and API type sharing)
 export type {
   CheckRunFindingResponse,

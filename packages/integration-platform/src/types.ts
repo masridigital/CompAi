@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { SyncDefinition } from './dsl/types';
+import type { SyncDefinition, SyncEmployee } from './dsl/types';
 import type { TaskTemplateId } from './task-mappings';
 
 // ============================================================================
@@ -795,6 +795,23 @@ export interface IntegrationHandler {
   ) => Promise<IntegrationFinding[]>;
 }
 
+/**
+ * Employee sync implemented in code by a code-based manifest (the code
+ * equivalent of a dynamic integration's `syncDefinition`). The API runs it
+ * through the generic dynamic sync endpoint and hands the result to the
+ * shared employee-sync processor, so import/deactivation rules are identical
+ * to every other provider.
+ */
+export interface CodeEmployeeSync {
+  /** Fetch the provider's users as standardized employees. Throw on failure. */
+  run: (ctx: CheckContext) => Promise<SyncEmployee[]>;
+  /**
+   * Only offer this provider in the employee-sync picker once the org has an
+   * active connection (opt-in providers such as HaloPSA contacts).
+   */
+  listOnlyWhenConnected?: boolean;
+}
+
 // ============================================================================
 // Integration Manifest (the main contract)
 // ============================================================================
@@ -876,6 +893,9 @@ export interface IntegrationManifest {
 
   /** Declarative device sync definition (same DSL as employee sync) */
   deviceSyncDefinition?: SyncDefinition;
+
+  /** Code-based employee sync (requires the 'sync' capability). */
+  employeeSync?: CodeEmployeeSync;
 
   /** Whether multiple connections per org are allowed */
   supportsMultipleConnections?: boolean;

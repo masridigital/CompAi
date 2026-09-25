@@ -33,7 +33,6 @@ import {
   registry,
   matchesSyncFilterTerms,
   parseSyncFilterTerms,
-  interpretDeclarativeSync,
   interpretDeclarativeDeviceSync,
   type OAuthConfig,
   type SyncDefinition,
@@ -41,6 +40,10 @@ import {
 import { IntegrationSyncLoggerService } from '../services/integration-sync-logger.service';
 import { GenericEmployeeSyncService } from '../services/generic-employee-sync.service';
 import { resolveSyncEmployeeFilter } from '../services/sync-employee-filter';
+import {
+  isListedEmployeeSyncProvider,
+  resolveEmployeeSyncSource,
+} from '../services/employee-sync-source';
 import { GenericDeviceSyncService } from '../services/generic-device-sync.service';
 import { DynamicIntegrationRepository } from '../repositories/dynamic-integration.repository';
 import { CheckRunRepository } from '../repositories/check-run.repository';
@@ -1801,7 +1804,17 @@ export class SyncController {
       else connectionsBySlug.set(slug, [conn]);
     }
 
-    const results = syncProviders.map((m) => {
+    // Opt-in providers (e.g. HaloPSA contacts) only appear once connected.
+    const listedProviders = syncProviders.filter((m) =>
+      isListedEmployeeSyncProvider({
+        manifest: m,
+        hasActiveConnection: (connectionsBySlug.get(m.id) ?? []).some(
+          (c) => c.status === 'active',
+        ),
+      }),
+    );
+
+    const results = listedProviders.map((m) => {
       const conns = connectionsBySlug.get(m.id) ?? [];
       const connection = conns.find((c) => c.status === 'active');
       // No active connection: surface a broken (errored) one so the UI can
@@ -1878,10 +1891,15 @@ export class SyncController {
       );
     }
 
-    // 3. Get dynamic integration — must have syncDefinition
+    // 3. Resolve the employee source — a dynamic integration's syncDefinition,
+    // or a code manifest's employeeSync (e.g. HaloPSA client contacts)
     const dynamicIntegration =
       await this.dynamicIntegrationRepo.findBySlug(providerSlug);
-    if (!dynamicIntegration?.syncDefinition) {
+    const syncSource = resolveEmployeeSyncSource({
+      manifest,
+      syncDefinition: dynamicIntegration?.syncDefinition,
+    });
+    if (!syncSource) {
       throw new HttpException(
         `Integration "${providerSlug}" has no sync definition`,
         HttpStatus.BAD_REQUEST,
@@ -1964,14 +1982,8 @@ export class SyncController {
     });
 
     try {
-      // 7. Run sync definition → get SyncEmployee[]
-      const syncDefinition =
-        dynamicIntegration.syncDefinition as unknown as SyncDefinition;
-      const syncRunner = interpretDeclarativeSync({
-        definition: syncDefinition,
-      });
-
-      const employees = await syncRunner.run(ctx);
+      // 7. Run the sync source → get SyncEmployee[]
+      const employees = await syncSource.run(ctx);
 
       this.logger.log(
         `[DynamicSync] Sync definition produced ${employees.length} employees for "${providerSlug}"`,
@@ -1996,13 +2008,7 @@ export class SyncController {
         employees,
         options: {
           providerName: manifest.name,
-          // `SyncDefinition` (from @trycompai/integration-platform) doesn't
-          // declare `isDirectorySource`, but the underlying Prisma JSON value
-          // may carry it. Structural cast lets us read the optional flag
-          // with a safe `?? false` fallback.
-          isDirectorySource:
-            (syncDefinition as { isDirectorySource?: boolean })
-              .isDirectorySource ?? false,
+          isDirectorySource: syncSource.isDirectorySource,
           syncFilter,
         },
       });

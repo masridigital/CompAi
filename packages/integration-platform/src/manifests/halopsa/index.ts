@@ -18,6 +18,7 @@ import {
   halopsaSetupInstructions,
 } from './credentials';
 import { halopsaHandler } from './handler';
+import { syncExcludePatternsVariable, syncHaloEmployees } from './sync';
 import { halopsaVariables } from './variables';
 
 export const halopsaManifest: IntegrationManifest = {
@@ -44,8 +45,17 @@ export const halopsaManifest: IntegrationManifest = {
   // Requests go through the HaloPSA client (client/), not ctx.fetch.
   baseUrl: '',
 
-  capabilities: ['checks'],
-  variables: halopsaVariables,
+  // 'sync' makes HaloPSA selectable as the org's employee sync provider. It
+  // never runs unless the org explicitly picks it (employeeSyncProvider).
+  capabilities: ['checks', 'sync'],
+  // Once picked, Halo contacts are the directory of record for that client,
+  // same as Google Workspace / Rippling / JumpCloud.
+  isDirectorySource: true,
+  employeeSync: {
+    run: (ctx) => syncHaloEmployees({ ctx }),
+    listOnlyWhenConnected: true,
+  },
+  variables: [...halopsaVariables, syncExcludePatternsVariable],
   checks: [incidentResponseCheck, accessReviewCheck, employeeAccessCheck, changeManagementCheck],
   handler: halopsaHandler,
 };
@@ -63,6 +73,15 @@ export {
   parseIdList,
 } from './settings';
 export type { HaloAlertSettings, HaloAlertSeverity, HaloCheckSettings } from './settings';
+export {
+  DEFAULT_SYNC_EXCLUDE_PATTERNS,
+  isExcludedHaloContact,
+  mapHaloUsersToEmployees,
+  parseSyncExcludePatterns,
+  SYNC_EXCLUDE_PATTERNS_VARIABLE_ID,
+  syncHaloEmployees,
+} from './sync';
+export type { HaloEmployeeMapping } from './sync';
 export {
   DEFAULT_INCIDENT_SLA_HOURS,
   DEFAULT_JOINER_LEAVER_MAX_HOURS,
