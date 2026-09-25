@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config';
 
-// DSL tests run under Node (not `bun test`) because code steps execute in
+// DSL tests run under Node (`bun run test` skips src/dsl in `bun test`) because code steps execute in
 // isolated-vm, a native V8 addon that Bun cannot load. isolated-vm requires
 // --no-node-snapshot on Node 20+.
 export default defineConfig({

@@ -34,7 +34,7 @@
     "format": "prettier --write .",
     "lint": "prettier --check .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "bun test --path-ignore-patterns 'src/dsl/**' && vitest run",
     "verify": "bun run src/validators/manifest-validator.ts",
     "generate:tasks": "bun run scripts/generate-task-types.ts"
   },
