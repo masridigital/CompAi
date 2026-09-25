@@ -2,8 +2,11 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 const mockDb = {
   user: { findUnique: jest.fn(), update: jest.fn(), findMany: jest.fn() },
+  member: { findMany: jest.fn(), updateMany: jest.fn() },
+  $transaction: jest.fn(),
 };
 jest.mock('@db', () => ({ db: mockDb }));
+jest.mock('../roles/msp-tech-role', () => ({ MSP_TECH_ROLE: 'msp_tech' }));
 
 import { AdminUsersService } from './admin-users.service';
 import type { SettableGlobalRole } from './dto/msp-staff.dto';
@@ -11,7 +14,50 @@ import type { SettableGlobalRole } from './dto/msp-staff.dto';
 describe('AdminUsersService', () => {
   const service = new AdminUsersService();
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDb.$transaction.mockImplementation((fn: (tx: typeof mockDb) => unknown) => fn(mockDb));
+    mockDb.member.findMany.mockResolvedValue([]);
+  });
+
+  it('deactivates msp_tech memberships when demoting msp_staff to user, in the transaction', async () => {
+    mockDb.user.findUnique.mockResolvedValue({ id: 'u1', role: 'msp_staff' });
+    mockDb.user.update.mockResolvedValue({ id: 'u1', role: 'user' });
+    mockDb.member.findMany.mockResolvedValue([
+      { id: 'mem_tech', role: 'msp_tech' },
+      { id: 'mem_mixed', role: 'employee, msp_tech' },
+      { id: 'mem_client', role: 'employee' },
+      { id: 'mem_lookalike', role: 'msp_tech_lead' },
+    ]);
+
+    await service.setGlobalRole({ userId: 'u1', role: 'user', adminUserId: 'adm' });
+
+    expect(mockDb.$transaction).toHaveBeenCalledTimes(1);
+    expect(mockDb.member.findMany).toHaveBeenCalledWith({
+      where: { userId: 'u1', deactivated: false },
+      select: { id: true, role: true },
+    });
+    expect(mockDb.member.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['mem_tech', 'mem_mixed'] } },
+      data: { deactivated: true, isActive: false },
+    });
+  });
+
+  it('does not touch memberships when promoting user to msp_staff', async () => {
+    mockDb.user.findUnique.mockResolvedValue({ id: 'u1', role: 'user' });
+    mockDb.user.update.mockResolvedValue({ id: 'u1', role: 'msp_staff' });
+    await service.setGlobalRole({ userId: 'u1', role: 'msp_staff', adminUserId: 'adm' });
+    expect(mockDb.member.findMany).not.toHaveBeenCalled();
+    expect(mockDb.member.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('skips updateMany when a demoted user has no msp_tech memberships', async () => {
+    mockDb.user.findUnique.mockResolvedValue({ id: 'u1', role: 'msp_staff' });
+    mockDb.user.update.mockResolvedValue({ id: 'u1', role: 'user' });
+    mockDb.member.findMany.mockResolvedValue([{ id: 'mem_client', role: 'admin' }]);
+    await service.setGlobalRole({ userId: 'u1', role: 'user', adminUserId: 'adm' });
+    expect(mockDb.member.updateMany).not.toHaveBeenCalled();
+  });
 
   it('sets msp_staff on a regular user', async () => {
     mockDb.user.findUnique.mockResolvedValue({ id: 'u1', role: 'user' });

@@ -52,6 +52,9 @@ jest.mock('@db', () => ({
     organization: {
       findUnique: jest.fn(),
     },
+    organizationRole: {
+      findMany: jest.fn(async () => []),
+    },
     organizationChart: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -89,12 +92,17 @@ jest.mock('@trycompai/auth', () => ({
     employee: { compliance: ['required'] },
     contractor: { compliance: ['required'] },
   },
+  isRestrictedRole: (role: string) => role === 'employee' || role === 'contractor',
+  parseRolePermissions: (value: unknown) =>
+    typeof value === 'string' ? JSON.parse(value) : value,
 }));
 
 jest.mock('@trycompai/email', () => ({
   isUserUnsubscribed: jest.fn().mockResolvedValue(false),
   sendUnassignedItemsNotificationEmail: jest.fn().mockResolvedValue(undefined),
 }));
+
+const OWNER_CALLER = { userRoles: ['owner'] };
 
 jest.mock('./utils/member-validator');
 jest.mock('./utils/member-queries');
@@ -228,7 +236,7 @@ describe('PeopleService', () => {
         createdMember,
       );
 
-      const result = await service.create('org_123', createData as any);
+      const result = await service.create('org_123', createData as any, OWNER_CALLER);
 
       expect(result).toEqual(createdMember);
       expect(MemberQueries.createMember).toHaveBeenCalledWith(
@@ -247,7 +255,7 @@ describe('PeopleService', () => {
       );
 
       await expect(
-        service.create('org_123', { userId: 'usr_dup' } as any),
+        service.create('org_123', { userId: 'usr_dup' } as any, OWNER_CALLER),
       ).rejects.toThrow(BadRequestException);
     });
   });

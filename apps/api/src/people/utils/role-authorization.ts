@@ -1,5 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { db } from '@db';
+import { assertCanGrantRoles } from '../../roles/role-grant';
 
 const OWNER_ROLE = 'owner';
 
@@ -26,7 +27,7 @@ interface AuthorizeRoleChangeParams {
  * Enforces:
  *  - Caller cannot change their OWN role (use /organization/transfer-ownership for owner moves).
  *  - The 'owner' role can only be granted/revoked via /organization/transfer-ownership.
- *  - A caller cannot assign a role they do not themselves possess.
+ *  - A caller cannot assign a role carrying permissions they do not hold.
  */
 export async function authorizeRoleChange({
   callerUserId,
@@ -64,15 +65,11 @@ export async function authorizeRoleChange({
     );
   }
 
-  if (callerRoles.includes(OWNER_ROLE)) {
-    return;
-  }
-
-  for (const role of newRoles) {
-    if (!callerRoles.includes(role)) {
-      throw new ForbiddenException(
-        `You cannot assign the role "${role}" because you do not hold it`,
-      );
-    }
-  }
+  // Cannot grant more than you have: every new role's permissions must be a
+  // subset of the caller's combined permissions (owners may grant anything).
+  await assertCanGrantRoles({
+    organizationId,
+    targetRoles: newRoles,
+    callerRoles,
+  });
 }

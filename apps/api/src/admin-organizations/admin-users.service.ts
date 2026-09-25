@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { db } from '@db';
 import { SETTABLE_GLOBAL_ROLES, type SettableGlobalRole } from './dto/msp-staff.dto';
+import { MSP_TECH_ROLE } from '../roles/msp-tech-role';
 import { MSP_ASSIGNABLE_USER_ROLES } from './msp-staff-plan';
 
 @Injectable()
@@ -71,15 +72,42 @@ export class AdminUsersService {
       );
     }
 
-    const updated = await db.user.update({
-      where: { id: userId },
-      data: { role },
-      select: { id: true, email: true, name: true, role: true },
+    const demotingStaff = user.role === 'msp_staff' && role === 'user';
+    const { updated, deactivatedMemberIds } = await db.$transaction(async (tx) => {
+      const updatedUser = await tx.user.update({
+        where: { id: userId },
+        data: { role },
+        select: { id: true, email: true, name: true, role: true },
+      });
+      if (!demotingStaff) return { updated: updatedUser, deactivatedMemberIds: [] };
+
+      // Demoted techs lose their MSP access: deactivate memberships that carry
+      // msp_tech. Client-owned memberships with other roles stay untouched.
+      const memberships = await tx.member.findMany({
+        where: { userId, deactivated: false },
+        select: { id: true, role: true },
+      });
+      const ids = memberships
+        .filter((m) => m.role.split(',').map((r) => r.trim()).includes(MSP_TECH_ROLE))
+        .map((m) => m.id);
+      if (ids.length > 0) {
+        await tx.member.updateMany({
+          where: { id: { in: ids } },
+          data: { deactivated: true, isActive: false },
+        });
+      }
+      return { updated: updatedUser, deactivatedMemberIds: ids };
     });
+
     // No org in scope, so AdminAuditLogInterceptor skips this route; log it.
     this.logger.log(
       `Admin ${adminUserId} changed global role of ${userId}: ${user.role ?? 'null'} -> ${role}`,
     );
+    if (deactivatedMemberIds.length > 0) {
+      this.logger.log(
+        `Deactivated ${deactivatedMemberIds.length} msp_tech membership(s) of ${userId}: ${deactivatedMemberIds.join(', ')}`,
+      );
+    }
     return updated;
   }
 }
