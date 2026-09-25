@@ -11,6 +11,7 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
+  Stack,
   Tabs,
   TabsContent,
   TabsList,
@@ -27,6 +28,7 @@ import { FeatureFlagsTab } from './FeatureFlagsTab';
 import { FindingsTab } from './FindingsTab';
 import { FrameworksTab } from './FrameworksTab';
 import { MembersTab } from './MembersTab';
+import { MspStaffSection } from './MspStaffSection';
 import { OrganizationDetail } from './OrganizationDetail';
 import { PoliciesTab } from './PoliciesTab';
 import { TasksTab } from './TasksTab';
@@ -215,7 +217,10 @@ export function AdminOrgTabs({ org, currentOrgId }: { org: AdminOrgDetail; curre
           <OrganizationDetail org={org} currentOrgId={currentOrgId} hasAccess={hasAccess} />
         </TabsContent>
         <TabsContent value="members">
-          <MembersTab orgId={org.id} orgName={org.name} members={org.members} />
+          <Stack gap="lg">
+            <MembersTab orgId={org.id} orgName={org.name} members={org.members} />
+            <MspStaffSection orgId={org.id} orgName={org.name} />
+          </Stack>
         </TabsContent>
         <TabsContent value="policies">
           <PoliciesTab orgId={org.id} />

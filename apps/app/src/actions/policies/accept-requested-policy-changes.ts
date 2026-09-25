@@ -1,6 +1,7 @@
 'use server';
 
 import { getOrgIsInternal } from '@/lib/org-participation';
+import { orgParticipantMemberWhereForFlag } from '@/lib/org-participation-rule';
 import { sendNewPolicyEmail } from '@/trigger/tasks/email/new-policy-email';
 import { db, PolicyStatus, type Prisma } from '@db/server';
 import { tasks } from '@trigger.dev/sdk';
@@ -109,7 +110,7 @@ export const acceptRequestedPolicyChangesAction = authActionClient
           organizationId: session.activeOrganizationId,
           isActive: true,
           deactivated: false,
-          ...(orgIsInternal ? {} : { user: { role: { not: 'admin' } } }),
+          ...orgParticipantMemberWhereForFlag(orgIsInternal),
         },
         include: {
           user: true,

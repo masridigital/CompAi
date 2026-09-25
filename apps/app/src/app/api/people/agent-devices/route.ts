@@ -4,6 +4,7 @@ import type {
   SourceCompliance,
 } from '@/app/(app)/[orgId]/people/devices/types';
 import { getOrgIsInternal } from '@/lib/org-participation';
+import { orgParticipantMemberWhereForFlag } from '@/lib/org-participation-rule';
 import { requireApiPermission } from '@/lib/permissions.server';
 import { db } from '@db/server';
 import { daysSinceCheckIn, getDeviceComplianceStatus } from '@trycompai/utils/devices';
@@ -31,7 +32,7 @@ export async function GET(req: Request) {
       organizationId,
       member: {
         deactivated: false,
-        ...(orgIsInternal ? {} : { NOT: { user: { role: 'admin' } } }),
+        ...orgParticipantMemberWhereForFlag(orgIsInternal),
       },
     },
     include: {

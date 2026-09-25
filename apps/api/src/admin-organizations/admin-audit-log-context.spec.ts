@@ -30,6 +30,8 @@ jest.mock('@db', () => ({
 jest.mock('../audit/audit-log.constants', () => ({
   MUTATION_METHODS: new Set(['POST', 'PATCH', 'PUT', 'DELETE']),
   SENSITIVE_KEYS: new Set<string>(),
+  // Never matches, so no body key is redacted in this parsing test.
+  SENSITIVE_KEY_PATTERN: /$^/,
 }));
 
 describe('AdminAuditLogInterceptor context parsing', () => {

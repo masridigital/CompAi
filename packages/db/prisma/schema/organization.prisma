@@ -130,6 +130,8 @@ model Organization {
 
   // MSP: posture
   clientPostureSnapshots ClientPostureSnapshot[]
+  // MSP: S4 session active-org FK
+  activeSessions Session[] @relation("SessionActiveOrganization")
 
   @@index([slug])
 }

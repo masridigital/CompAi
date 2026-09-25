@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 
+import { isNonParticipantRole } from '@/lib/org-participation-rule';
 import { parseRolesString } from '@/lib/permissions';
 import type { Role } from '@db';
 import {
@@ -175,7 +176,7 @@ export function MemberRow({
   const profileHref = `/${orgId}/people/${memberId}`;
   const hasCompletedBackgroundCheck = isBackgroundCheckComplete(backgroundCheckStatus);
   const memberExempt = member.backgroundCheckExempt === true;
-  const shouldShowTaskRequirements = !isPlatformAdmin && !isDeactivated;
+  const shouldShowTaskRequirements = !isNonParticipantRole(member.user.role) && !isDeactivated;
   // One cell per requirement column. A muted dash = the requirement doesn't
   // apply to this member (org flag off, exempt, auditor-only, admin, 0 total).
   const renderRequirementCell = (key: RequirementColumnKey) => {

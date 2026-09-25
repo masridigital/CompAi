@@ -14,6 +14,8 @@ import { AdminContextController } from './admin-context.controller';
 import { AdminEvidenceController } from './admin-evidence.controller';
 import { AdminFrameworksController } from './admin-frameworks.controller';
 import { AdminPostureController } from './admin-posture.controller';
+import { AdminMspStaffController } from './admin-msp-staff.controller';
+import { AdminUsersController } from './admin-users.controller';
 import { AdminIntegrationsController } from '../integration-platform/controllers/admin-integrations.controller';
 import { PlatformAuditLogInterceptor } from '../integration-platform/interceptors/platform-audit-log.interceptor';
 
@@ -94,6 +96,7 @@ const ORG_ADMIN_CONTROLLERS = [
   { name: 'AdminEvidenceController', controller: AdminEvidenceController },
   { name: 'AdminFrameworksController', controller: AdminFrameworksController },
   { name: 'AdminPostureController', controller: AdminPostureController },
+  { name: 'AdminMspStaffController', controller: AdminMspStaffController },
 ];
 
 describe('Admin controllers security baseline', () => {
@@ -138,8 +141,8 @@ describe('Admin controllers security baseline', () => {
     });
   });
 
-  it('covers all 9 expected org-scoped admin controllers', () => {
-    expect(ORG_ADMIN_CONTROLLERS).toHaveLength(9);
+  it('covers all 10 expected org-scoped admin controllers', () => {
+    expect(ORG_ADMIN_CONTROLLERS).toHaveLength(10);
   });
 
   describe('AdminIntegrationsController', () => {
@@ -185,8 +188,30 @@ describe('Admin controllers security baseline', () => {
     });
   });
 
-  it('covers all 10 admin controllers (9 org-scoped + 1 platform-scoped)', () => {
-    expect(ORG_ADMIN_CONTROLLERS).toHaveLength(9);
+  describe('AdminUsersController', () => {
+    const controller = AdminUsersController;
+
+    it('has PlatformAdminGuard applied at the class level', () => {
+      const guards = Reflect.getMetadata(GUARDS_METADATA, controller) ?? [];
+      expect(guards).toContain(PlatformAdminGuard);
+    });
+
+    it('uses the admin/users path with versioning', () => {
+      expect(Reflect.getMetadata('path', controller)).toBe('admin/users');
+      expect(Reflect.getMetadata('__version__', controller)).toBeDefined();
+    });
+
+    it('does NOT use HybridAuthGuard or PermissionGuard', () => {
+      const guards = Reflect.getMetadata(GUARDS_METADATA, controller) ?? [];
+      const guardNames = guards.map((g: { name?: string }) => g.name);
+      expect(guardNames).not.toContain('HybridAuthGuard');
+      expect(guardNames).not.toContain('PermissionGuard');
+    });
+  });
+
+  it('covers all 12 admin controllers (10 org-scoped + 2 platform-scoped)', () => {
+    expect(ORG_ADMIN_CONTROLLERS).toHaveLength(10);
+    expect(AdminUsersController).toBeDefined();
     expect(AdminIntegrationsController).toBeDefined();
   });
 

@@ -30,6 +30,12 @@ const ROLE_SETTING_FIELDS: Partial<Record<EmailPreferenceType, string>> = {
 
 const ADMIN_ROLES = new Set(['owner', 'admin']);
 
+// Global User.role values that never receive org email notifications: platform
+// admins and MSP staff (mirrors NON_PARTICIPANT_ROLES in @trycompai/auth).
+const NON_PARTICIPANT_USER_ROLES = new Set(['admin', 'msp_staff']);
+const isNonParticipantUser = (role: string | null | undefined): boolean =>
+  !!role && NON_PARTICIPANT_USER_ROLES.has(role);
+
 // Portal-only roles should not receive app notifications by default.
 // When no role_notification_setting DB record exists, these defaults apply.
 const PORTAL_ONLY_ROLES = new Set(['employee', 'contractor']);
@@ -118,7 +124,7 @@ export async function getUnsubscribedEmails(
     // Step 1: filter out platform admins and legacy all-or-nothing unsubscribes
     const survivingUsers: typeof users = [];
     for (const user of users) {
-      if (user.role === 'admin' || user.emailNotificationsUnsubscribed) {
+      if (isNonParticipantUser(user.role) || user.emailNotificationsUnsubscribed) {
         unsubscribed.add(user.email);
       } else {
         survivingUsers.push(user);
@@ -277,8 +283,8 @@ export async function isUserUnsubscribed(
       return false;
     }
 
-    // Platform admins never receive email notifications
-    if (user.role === 'admin') {
+    // Platform admins and MSP staff never receive email notifications
+    if (isNonParticipantUser(user.role)) {
       return true;
     }
 

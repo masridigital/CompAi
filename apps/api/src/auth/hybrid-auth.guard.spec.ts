@@ -314,6 +314,46 @@ describe('HybridAuthGuard — MCP OAuth path', () => {
     expect(request.isPlatformAdmin).toBe(true);
   });
 
+  it('does NOT mark msp_staff as platform admin', async () => {
+    mockGetMcpSession.mockResolvedValue({ userId: 'usr_t', scopes: 'openid' });
+    mockUserFindUnique.mockResolvedValue({
+      id: 'usr_t',
+      email: 'tech@msp.com',
+      role: 'msp_staff',
+    });
+    mockMemberFindMany.mockResolvedValue([
+      { id: 'mem_t', role: 'msp_tech', department: 'it', organizationId: 'org_1' },
+    ]);
+    mockOrgRoleFindMany.mockResolvedValue([
+      { name: 'msp_tech', permissions: JSON.stringify({ app: ['read'] }) },
+    ]);
+
+    const { context, request } = createContext({
+      authorization: 'Bearer mcp_access_token',
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.isPlatformAdmin).toBe(false);
+  });
+
+  it('gives msp_staff no app-access bypass with a portal-only member role', async () => {
+    mockGetMcpSession.mockResolvedValue({ userId: 'usr_t2', scopes: 'openid' });
+    mockUserFindUnique.mockResolvedValue({
+      id: 'usr_t2',
+      email: 'tech2@msp.com',
+      role: 'msp_staff',
+    });
+    mockMemberFindMany.mockResolvedValue([
+      { id: 'mem_t2', role: 'employee', department: 'none', organizationId: 'org_1' },
+    ]);
+
+    const { context } = createContext({
+      authorization: 'Bearer mcp_access_token',
+    });
+
+    await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+  });
+
   it('blocks a Portal-only role (employee) — no app access, no MCP', async () => {
     mockGetMcpSession.mockResolvedValue({ userId: 'usr_e', scopes: 'openid' });
     mockUserFindUnique.mockResolvedValue({
@@ -459,5 +499,60 @@ describe('HybridAuthGuard — service token x-user-id acting member', () => {
     expect(request.memberId).toBeUndefined();
     // Auth still succeeds as a service token, just with no acting user.
     expect(request.isServiceToken).toBe(true);
+  });
+});
+
+describe('HybridAuthGuard — session path platform-admin flag', () => {
+  let guard: HybridAuthGuard;
+
+  const run = async (role: string) => {
+    mockGetSession.mockResolvedValue({
+      user: { id: 'usr_s', email: 's@msp.com', role },
+      session: { id: 'ses_1', activeOrganizationId: 'org_1' },
+    });
+    mockMemberFindFirst.mockResolvedValue({
+      id: 'mem_s',
+      role: 'msp_tech',
+      department: 'it',
+    });
+    const request: Record<string, unknown> = {
+      headers: { cookie: 'session=abc' },
+    };
+    const context = {
+      switchToHttp: () => ({ getRequest: () => request }),
+      getHandler: () => jest.fn(),
+      getClass: () => jest.fn(),
+    } as unknown as ExecutionContext;
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    return request;
+  };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        HybridAuthGuard,
+        {
+          provide: ApiKeyService,
+          useValue: { extractApiKey: jest.fn(), validateApiKey: jest.fn() },
+        },
+        Reflector,
+      ],
+    }).compile();
+    guard = module.get<HybridAuthGuard>(HybridAuthGuard);
+    jest
+      .spyOn(module.get<Reflector>(Reflector), 'getAllAndOverride')
+      .mockReturnValue(false);
+  });
+
+  it('sets isPlatformAdmin=false for msp_staff', async () => {
+    const request = await run('msp_staff');
+    expect(request.isPlatformAdmin).toBe(false);
+    expect(request.userRoles).toEqual(['msp_tech']);
+  });
+
+  it('sets isPlatformAdmin=true only for admin', async () => {
+    const request = await run('admin');
+    expect(request.isPlatformAdmin).toBe(true);
   });
 });

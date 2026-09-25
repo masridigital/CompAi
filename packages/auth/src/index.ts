@@ -23,8 +23,11 @@ export {
 export { createAuthServer, type AuthServer, type CreateAuthServerOptions } from './server';
 
 export {
+  MSP_STAFF_ROLE,
+  NON_PARTICIPANT_ROLES,
   PLATFORM_ADMIN_ROLE,
   isExcludedFromOrgParticipation,
+  isNonParticipantRole,
   isOrgParticipant,
   type OrgParticipationContext,
 } from './participation';

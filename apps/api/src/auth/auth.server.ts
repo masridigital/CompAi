@@ -20,6 +20,7 @@ import {
   organization,
 } from 'better-auth/plugins';
 import { ac, allRoles } from '@trycompai/auth';
+import { adminPluginOptions } from './global-roles';
 import { createAuthMiddleware } from 'better-auth/api';
 import { Redis } from '@upstash/redis';
 import type { AccessControl } from 'better-auth/plugins/access';
@@ -505,9 +506,9 @@ export const auth = betterAuth({
     }),
     multiSession(),
     bearer(),
-    admin({
-      defaultRole: 'user',
-    }),
+    // Global roles: 'user' | 'admin' | 'msp_staff'. Only 'admin' is an admin
+    // role; msp_staff has user-level better-auth permissions (see global-roles).
+    admin(adminPluginOptions),
     // OAuth 2.0 / OIDC provider for hosted MCP (Gram). Wraps oidcProvider and
     // exposes /api/auth/mcp/* (authorize, token, register) + the two
     // /api/auth/.well-known/* discovery docs, plus the auth.api.getMcpSession()

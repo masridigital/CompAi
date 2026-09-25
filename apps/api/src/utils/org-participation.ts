@@ -3,7 +3,7 @@ import { db, Prisma } from '@db';
 // safe in the API's Trigger.dev bundle — the auth package's dist isn't built in
 // that deploy, so esbuild can't resolve `@trycompai/auth/participation`. The
 // mirror is kept in sync with the auth package by org-participation-rule.spec.ts.
-import { PLATFORM_ADMIN_ROLE, isOrgParticipant } from './org-participation-rule';
+import { NON_PARTICIPANT_ROLES, isOrgParticipant } from './org-participation-rule';
 
 /**
  * Resolve whether an organization is platform-operated ("internal", e.g. Comp
@@ -37,7 +37,8 @@ export async function isMemberOrgParticipant(
  * A Prisma `Member` where-fragment that keeps only org participants — the SQL
  * translation of {@link isOrgParticipant}, built from an already-resolved
  * internal flag. Returns an empty fragment for internal orgs (everyone
- * participates). For other orgs it excludes only platform admins; `role: { not }`
+ * participates). For other orgs it excludes non-participant global roles
+ * (platform admins and MSP staff); `role: { notIn }`
  * skips NULL in SQL, so null roles are included explicitly to match the
  * predicate (a null global role is a normal member, not a platform admin).
  *
@@ -54,7 +55,11 @@ export function orgParticipantMemberWhereForFlag(
   if (orgIsInternal) return {};
   return {
     AND: [
-      { user: { OR: [{ role: { not: PLATFORM_ADMIN_ROLE } }, { role: null }] } },
+      {
+        user: {
+          OR: [{ role: { notIn: [...NON_PARTICIPANT_ROLES] } }, { role: null }],
+        },
+      },
     ],
   };
 }
