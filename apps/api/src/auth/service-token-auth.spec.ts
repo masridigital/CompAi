@@ -111,6 +111,13 @@ describe('authenticateServiceToken — signed org claim (S1)', () => {
       expect(mockOrgFindUnique).not.toHaveBeenCalled();
     });
 
+    it('accepts (with a warning) a signed claim when the API has no signing secret yet', async () => {
+      delete process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER;
+      const request = await run(signedHeaders({ secret: 'caller-only-secret' }));
+      expect(request.isServiceToken).toBe(true);
+      expect(request.organizationId).toBe(ORG);
+    });
+
     it('rejects a timestamp without a signature', async () => {
       await expect(
         run({
