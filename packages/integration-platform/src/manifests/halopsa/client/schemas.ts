@@ -34,7 +34,7 @@ export type HaloSite = z.infer<typeof HaloSiteSchema>;
 /** Halo "User" = a client contact (end user), not an agent. */
 export const HaloUserSchema = z.looseObject({
   id: haloId,
-  name: z.string(),
+  name: optionalString,
   emailaddress: optionalString,
   client_id: optionalId,
   site_id: optionalId,

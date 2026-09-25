@@ -206,4 +206,91 @@ describe('SyncController - dynamic provider employee sync filter', () => {
       }),
     );
   });
+
+  describe('code manifest employeeSync (HaloPSA)', () => {
+    const haloEmployees: SyncEmployee[] = [
+      { email: 'jane@acme.test', name: 'Jane', status: 'active' },
+    ];
+    const employeeSyncRun = jest.fn();
+
+    function setupHalo() {
+      mockFindById.mockResolvedValue({
+        id: connectionId,
+        organizationId: orgId,
+        variables: {},
+        metadata: {},
+      });
+      employeeSyncRun.mockResolvedValue(haloEmployees);
+      mockGetManifest.mockReturnValue({
+        name: 'HaloPSA',
+        auth: { type: 'custom' },
+        capabilities: ['checks', 'sync'],
+        isDirectorySource: true,
+        employeeSync: { run: employeeSyncRun, listOnlyWhenConnected: true },
+      });
+      mockFindBySlug.mockResolvedValue(null);
+      mockGetDecryptedCredentials.mockResolvedValue({ haloClientId: '7' });
+      mockCheckRunCreate.mockResolvedValue({ id: 'run_1', startedAt: new Date() });
+      mockCreateCheckContext.mockReturnValue({
+        ctx: { marker: 'ctx' },
+        getResults: () => ({ logs: [] }),
+      });
+      mockProcessEmployees.mockResolvedValue({
+        success: true,
+        totalFound: 1,
+        imported: 1,
+        skipped: 0,
+        deactivated: 0,
+        reactivated: 0,
+        errors: 0,
+        details: [],
+      });
+    }
+
+    it('runs manifest.employeeSync and reuses the generic processor as a directory source', async () => {
+      setupHalo();
+
+      await controller.syncDynamicProviderEmployees(orgId, 'halopsa', connectionId);
+
+      expect(mockInterpretDeclarativeSync).not.toHaveBeenCalled();
+      expect(employeeSyncRun).toHaveBeenCalledWith({ marker: 'ctx' });
+      expect(mockProcessEmployees).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: orgId,
+          employees: haloEmployees,
+          options: expect.objectContaining({
+            providerName: 'HaloPSA',
+            isDirectorySource: true,
+          }),
+        }),
+      );
+    });
+
+    it('fails the run without processing employees when the Halo fetch throws', async () => {
+      setupHalo();
+      employeeSyncRun.mockRejectedValue(new Error('HaloPSA API /Users failed with HTTP 403'));
+
+      await expect(
+        controller.syncDynamicProviderEmployees(orgId, 'halopsa', connectionId),
+      ).rejects.toThrow(/Sync execution failed/);
+      expect(mockProcessEmployees).not.toHaveBeenCalled();
+      expect(mockCheckRunComplete).toHaveBeenCalledWith(
+        'run_1',
+        expect.objectContaining({ status: 'failed' }),
+      );
+    });
+
+    it('rejects a sync-capable manifest with neither a definition nor employeeSync', async () => {
+      setupHalo();
+      mockGetManifest.mockReturnValue({
+        name: 'Other',
+        auth: { type: 'custom' },
+        capabilities: ['sync'],
+      });
+
+      await expect(
+        controller.syncDynamicProviderEmployees(orgId, 'other', connectionId),
+      ).rejects.toThrow(/has no sync definition/);
+    });
+  });
 });

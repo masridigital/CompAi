@@ -14,6 +14,7 @@ import type {
   HaloTeam,
   HaloTicket,
   HaloTicketType,
+  HaloUser,
 } from './schemas';
 import {
   addAction,
@@ -26,6 +27,7 @@ import {
   type CreateTicketInput,
   type SearchTicketsInput,
 } from './tickets';
+import { listClientUsers } from './users';
 
 export interface HaloClientOptions {
   /** Explicit config. Defaults to {@link loadHaloConfig} over `env`. */
@@ -47,6 +49,8 @@ export interface HaloClient {
   listClients: (params?: { search?: string }) => Promise<HaloClientRecord[]>;
   getClient: (clientId: number) => Promise<HaloClientRecord>;
   listSites: (clientId: number) => Promise<HaloSite[]>;
+  /** Client contacts (end users), including inactive ones. */
+  listClientUsers: (clientId: number) => Promise<HaloUser[]>;
 
   createTicket: (input: CreateTicketInput) => Promise<number>;
   getTicket: (ticketId: number) => Promise<HaloTicket>;
@@ -123,6 +127,7 @@ export function createHaloClient(options: HaloClientOptions = {}): HaloClient {
     listClients: (params) => listClients({ http, search: params?.search }),
     getClient: (clientId) => getClient({ http, clientId }),
     listSites: (clientId) => listSites({ http, clientId }),
+    listClientUsers: (clientId) => listClientUsers({ http, clientId }),
     createTicket: (input) => createTicket({ http, input }),
     getTicket: (ticketId) => getTicket({ http, ticketId }),
     searchTickets: (input) => searchTickets({ http, input }),
@@ -150,3 +155,4 @@ export type { HaloHttp, HaloPageRequest, HaloQuery, HaloRequest, SleepFn } from 
 export * from './schemas';
 export { buildAddActionPayload, buildCreateTicketPayload, buildSetStatusPayload } from './tickets';
 export type { AddActionInput, CreateTicketInput, SearchTicketsInput } from './tickets';
+export { listClientUsers } from './users';
