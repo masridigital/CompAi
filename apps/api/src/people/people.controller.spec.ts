@@ -201,7 +201,7 @@ describe('PeopleController', () => {
 
       expect(result).toMatchObject(createdMember);
       expect(result.authType).toBe('session');
-      expect(peopleService.create).toHaveBeenCalledWith('org_123', dto);
+      expect(peopleService.create).toHaveBeenCalledWith('org_123', dto, mockAuthContext);
     });
   });
 
@@ -227,7 +227,7 @@ describe('PeopleController', () => {
       );
 
       expect(result.summary).toEqual(bulkResult.summary);
-      expect(peopleService.bulkCreate).toHaveBeenCalledWith('org_123', dto);
+      expect(peopleService.bulkCreate).toHaveBeenCalledWith('org_123', dto, mockAuthContext);
     });
   });
 

@@ -17,6 +17,11 @@ import {
 import type { InviteItemDto } from './dto/invite-people.dto';
 import { checkAutoCompletePhases } from '../frameworks/frameworks-timeline.helper';
 import { TimelinesService } from '../timelines/timelines.service';
+import {
+  assertCallerCanGrantRoles,
+  toRoleList,
+  type RoleGrantCaller,
+} from '../roles/role-grant';
 
 export interface InviteResult {
   email: string;
@@ -38,6 +43,7 @@ export class PeopleInviteService {
     callerRole: string;
     isApiKey?: boolean;
     apiKeyScopes?: string[];
+    isPlatformAdmin?: boolean;
   }): Promise<InviteResult[]> {
     const {
       organizationId,
@@ -46,7 +52,13 @@ export class PeopleInviteService {
       callerRole,
       isApiKey,
       apiKeyScopes,
+      isPlatformAdmin,
     } = params;
+    const grantCaller: RoleGrantCaller = {
+      userRoles: toRoleList(callerRole),
+      isApiKey,
+      isPlatformAdmin,
+    };
 
     const callerMemberActions = await this.resolveCallerMemberActions(
       callerRole,
@@ -79,6 +91,19 @@ export class PeopleInviteService {
         );
         if (roleError) {
           results.push({ email: invite.email, success: false, error: roleError });
+          continue;
+        }
+        // Cannot grant more than you have (permission subset, owner-only owner).
+        const grantError = await assertCallerCanGrantRoles({
+          organizationId,
+          caller: grantCaller,
+          targetRoles: invite.roles,
+        }).then(
+          () => null,
+          (err: unknown) => (err instanceof Error ? err.message : 'Role not allowed'),
+        );
+        if (grantError) {
+          results.push({ email: invite.email, success: false, error: grantError });
           continue;
         }
 

@@ -147,6 +147,39 @@ describe('PeopleInviteService', () => {
       callerRole: 'admin,owner',
     };
 
+    it('blocks an msp_tech caller from inviting a role with permissions it lacks', async () => {
+      (mockDb.organizationRole.findMany as jest.Mock).mockImplementation(
+        async ({ where }: { where: { name: { in: string[] } } }) =>
+          where.name.in.includes('msp_tech')
+            ? [
+                {
+                  name: 'msp_tech',
+                  permissions: JSON.stringify({
+                    organization: ['read'],
+                    member: ['create', 'read', 'update', 'delete'],
+                  }),
+                  obligations: '{}',
+                },
+              ]
+            : [],
+      );
+
+      const results = await service.inviteMembers({
+        ...baseParams,
+        callerRole: 'msp_tech',
+        invites: [
+          { email: 'a@example.com', roles: ['admin'] },
+          { email: 'b@example.com', roles: ['owner'] },
+        ],
+      });
+
+      expect(results[0].success).toBe(false);
+      expect(results[0].error).toContain('You cannot grant the role "admin"');
+      expect(results[1].success).toBe(false);
+      expect(mockDb.invitation.create).not.toHaveBeenCalled();
+      (mockDb.organizationRole.findMany as jest.Mock).mockResolvedValue([]);
+    });
+
     it('should return error for employee caller trying to invite', async () => {
       const results = await service.inviteMembers({
         ...baseParams,

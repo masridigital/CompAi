@@ -21,7 +21,13 @@ import {
 } from 'better-auth/plugins';
 import { ac, allRoles } from '@trycompai/auth';
 import { adminPluginOptions } from './global-roles';
-import { createAuthMiddleware } from 'better-auth/api';
+import {
+  APIError,
+  createAuthMiddleware,
+  getSessionFromCtx,
+} from 'better-auth/api';
+import { ForbiddenException } from '@nestjs/common';
+import { ROLE_GRANTING_AUTH_PATHS, enforceOrgRoleGrant } from './org-role-grant.guard';
 import { Redis } from '@upstash/redis';
 import type { AccessControl } from 'better-auth/plugins/access';
 import {
@@ -354,6 +360,28 @@ export const auth = betterAuth({
     },
   },
   hooks: {
+    // Cannot grant more than you have: guard better-auth's role-assigning
+    // organization endpoints (update-member-role, invite-member).
+    before: createAuthMiddleware(async (ctx) => {
+      if (!ROLE_GRANTING_AUTH_PATHS.has(ctx.path)) return;
+      const session = await getSessionFromCtx(ctx);
+      try {
+        await enforceOrgRoleGrant({
+          path: ctx.path,
+          body: ctx.body,
+          userId: session?.user?.id,
+          userRole: (session?.user as { role?: string | null } | undefined)?.role,
+          activeOrganizationId: (
+            session?.session as { activeOrganizationId?: string | null } | undefined
+          )?.activeOrganizationId,
+        });
+      } catch (err) {
+        if (err instanceof ForbiddenException) {
+          throw new APIError('FORBIDDEN', { message: err.message });
+        }
+        throw err;
+      }
+    }),
     after: createAuthMiddleware(async (ctx) => {
       if (!ctx.path.startsWith('/admin/')) return;
 

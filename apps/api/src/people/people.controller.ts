@@ -96,6 +96,7 @@ export class PeopleController {
       callerRole: authContext.userRoles?.join(',') ?? '',
       isApiKey: authContext.isApiKey,
       apiKeyScopes: authContext.apiKeyScopes,
+      isPlatformAdmin: authContext.isPlatformAdmin,
     });
 
     return {
@@ -230,7 +231,11 @@ export class PeopleController {
     @OrganizationId() organizationId: string,
     @AuthContext() authContext: AuthContextType,
   ) {
-    const member = await this.peopleService.create(organizationId, createData);
+    const member = await this.peopleService.create(
+      organizationId,
+      createData,
+      authContext,
+    );
 
     return {
       ...member,
@@ -262,6 +267,7 @@ export class PeopleController {
     const result = await this.peopleService.bulkCreate(
       organizationId,
       bulkCreateData,
+      authContext,
     );
 
     return {

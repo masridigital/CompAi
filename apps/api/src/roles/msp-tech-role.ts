@@ -6,9 +6,10 @@ export const MSP_TECH_ROLE = 'msp_tech';
 
 /**
  * Resources an MSP tech never gets, whatever the action: API keys (long-lived
- * org credentials) and the secrets manager (decrypted client credentials).
+ * org credentials), the secrets manager (decrypted client credentials) and
+ * `ac` (custom role management; techs do not manage roles).
  */
-const EXCLUDED_RESOURCES = new Set(['apiKey', 'secret']);
+const EXCLUDED_RESOURCES = new Set(['apiKey', 'secret', 'ac']);
 
 /** Single actions removed on top of the excluded resources. */
 const EXCLUDED_ACTIONS: Record<string, string[]> = {
@@ -17,7 +18,8 @@ const EXCLUDED_ACTIONS: Record<string, string[]> = {
 
 /**
  * `msp_tech` permissions: the built-in `admin` role minus `organization:delete`,
- * `apiKey:*` and `secret:*`. Derived from the admin definition so new admin
+ * `apiKey:*`, `secret:*` and `ac:*`. Techs keep member management; role grants
+ * are limited to what they hold (see roles/role-grant.ts). Derived from the admin definition so new admin
  * permissions flow through automatically (except the exclusions).
  */
 export function buildMspTechPermissions(): Record<string, string[]> {

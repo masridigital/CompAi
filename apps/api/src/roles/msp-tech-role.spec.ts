@@ -9,6 +9,7 @@ jest.mock('@trycompai/auth', () => ({
     admin: {
       organization: ['read', 'update', 'delete'],
       member: ['create', 'read', 'update', 'delete'],
+      ac: ['create', 'read', 'update', 'delete'],
       control: ['create', 'read', 'update', 'delete'],
       apiKey: ['create', 'read', 'delete'],
       secret: ['create', 'read', 'update', 'delete'],
@@ -27,8 +28,9 @@ import {
 describe('msp_tech role', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('excludes organization:delete, apiKey:* and secret:*', () => {
+  it('excludes organization:delete, apiKey:*, secret:* and ac:*', () => {
     const perms = buildMspTechPermissions();
+    expect(perms.ac).toBeUndefined();
     expect(perms.organization).toEqual(['read', 'update']);
     expect(perms.apiKey).toBeUndefined();
     expect(perms.secret).toBeUndefined();
@@ -38,7 +40,7 @@ describe('msp_tech role', () => {
     const perms = buildMspTechPermissions();
     const admin = BUILT_IN_ROLE_PERMISSIONS.admin;
     for (const [resource, actions] of Object.entries(admin)) {
-      if (resource === 'apiKey' || resource === 'secret') continue;
+      if (['apiKey', 'secret', 'ac'].includes(resource)) continue;
       const expected = actions.filter(
         (a) => !(resource === 'organization' && a === 'delete'),
       );

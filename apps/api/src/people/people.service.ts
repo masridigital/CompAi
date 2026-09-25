@@ -16,6 +16,7 @@ import type { BulkCreatePeopleDto } from './dto/bulk-create-people.dto';
 import { MemberValidator } from './utils/member-validator';
 import { MemberQueries } from './utils/member-queries';
 import { authorizeRoleChange } from './utils/role-authorization';
+import { assertCallerCanGrantRoles, type RoleGrantCaller } from '../roles/role-grant';
 import {
   notifyLoginEmailChanged,
   validateLoginEmailChange,
@@ -172,9 +173,15 @@ export class PeopleService {
   async create(
     organizationId: string,
     createData: CreatePeopleDto,
+    caller: RoleGrantCaller,
   ): Promise<PeopleResponseDto> {
     try {
       await MemberValidator.validateOrganization(organizationId);
+      await assertCallerCanGrantRoles({
+        organizationId,
+        caller,
+        targetRoles: createData.role,
+      });
       await MemberValidator.validateUser(createData.userId);
       await MemberValidator.validateUserNotMember(
         createData.userId,
@@ -202,7 +209,8 @@ export class PeopleService {
     } catch (error) {
       if (
         error instanceof NotFoundException ||
-        error instanceof BadRequestException
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
       ) {
         throw error;
       }
@@ -217,6 +225,7 @@ export class PeopleService {
   async bulkCreate(
     organizationId: string,
     bulkCreateData: BulkCreatePeopleDto,
+    caller: RoleGrantCaller,
   ): Promise<{
     created: PeopleResponseDto[];
     errors: Array<{ index: number; userId: string; error: string }>;
@@ -235,6 +244,11 @@ export class PeopleService {
       for (let i = 0; i < bulkCreateData.members.length; i++) {
         const memberData = bulkCreateData.members[i];
         try {
+          await assertCallerCanGrantRoles({
+            organizationId,
+            caller,
+            targetRoles: memberData.role,
+          });
           await MemberValidator.validateUser(memberData.userId);
           await MemberValidator.validateUserNotMember(
             memberData.userId,
