@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsInt, IsOptional, IsPositive, IsString, MinLength } from 'class-validator';
+import {
+  IsArray,
+  IsEmail,
+  IsInt,
+  IsOptional,
+  IsPositive,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class BindHaloClientDto {
   @ApiProperty({ description: 'Organization to bind the Halo client to', example: 'org_abc123' })
@@ -30,4 +39,14 @@ export class CreateOrgFromHaloClientDto {
   @IsInt()
   @IsPositive()
   haloSiteId?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Client contact to invite as the organization owner (normal invitation email). The acting platform admin is added as admin, not owner.',
+    example: 'owner@client.com',
+  })
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(320)
+  ownerEmail?: string;
 }
