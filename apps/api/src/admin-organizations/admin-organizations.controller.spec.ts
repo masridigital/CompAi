@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminOrganizationsController } from './admin-organizations.controller';
 import { AdminOrganizationsService } from './admin-organizations.service';
+import { ClientPostureQueryService } from '../client-posture/client-posture-query.service';
 
 jest.mock('../auth/platform-admin.guard', () => ({
   PlatformAdminGuard: class {
@@ -52,6 +53,9 @@ describe('AdminOrganizationsController', () => {
   const mockPurgeService = {
     purgeOrganization: jest.fn(),
   };
+  const mockPostureQuery = {
+    getLatestForOrganizations: jest.fn().mockResolvedValue(new Map()),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -63,6 +67,7 @@ describe('AdminOrganizationsController', () => {
             .PurgeOrganizationService,
           useValue: mockPurgeService,
         },
+        { provide: ClientPostureQueryService, useValue: mockPostureQuery },
       ],
     }).compile();
 
@@ -70,9 +75,38 @@ describe('AdminOrganizationsController', () => {
       AdminOrganizationsController,
     );
     jest.clearAllMocks();
+    mockPostureQuery.getLatestForOrganizations.mockResolvedValue(new Map());
   });
 
   describe('list', () => {
+    it('attaches the latest posture per org with a single lookup', async () => {
+      const posture = { overallScore: 72, failingChecks: 3 };
+      mockService.listOrganizations.mockResolvedValue({
+        data: [{ id: 'org_a' }, { id: 'org_b' }],
+        total: 2,
+        page: 1,
+        limit: 50,
+      });
+      mockPostureQuery.getLatestForOrganizations.mockResolvedValue(
+        new Map([['org_a', posture]]),
+      );
+
+      const result = await controller.list();
+
+      expect(mockPostureQuery.getLatestForOrganizations).toHaveBeenCalledTimes(
+        1,
+      );
+      expect(mockPostureQuery.getLatestForOrganizations).toHaveBeenCalledWith([
+        'org_a',
+        'org_b',
+      ]);
+      expect(result.data).toEqual([
+        { id: 'org_a', posture },
+        { id: 'org_b', posture: null },
+      ]);
+      expect(result.total).toBe(2);
+    });
+
     it('should call service with parsed params', async () => {
       const mockResult = { data: [], total: 0, page: 1, limit: 50 };
       mockService.listOrganizations.mockResolvedValue(mockResult);

@@ -7,6 +7,7 @@ import {
   runTaskIntegrationChecks,
   type TaskCheckRunResult,
 } from './run-task-integration-checks';
+import { triggerDebouncedClientPosture } from '../client-posture/compute-client-posture';
 
 /** One task scheduled for an org, as handed down by the orchestrator. */
 export interface OrgTaskCheck {
@@ -284,6 +285,9 @@ export const runOrgIntegrationChecks = task({
       organizationName,
       failedTasks,
     });
+
+    // MSP: posture — refresh this org's posture snapshot (debounced, never throws).
+    await triggerDebouncedClientPosture(organizationId);
 
     return {
       organizationId,

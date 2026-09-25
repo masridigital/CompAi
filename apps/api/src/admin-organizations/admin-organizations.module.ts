@@ -10,6 +10,7 @@ import { AttachmentsModule } from '../attachments/attachments.module';
 import { BillingModule } from '../billing/billing.module';
 import { SecurityPenetrationTestsModule } from '../security-penetration-tests/security-penetration-tests.module';
 import { FrameworksModule } from '../frameworks/frameworks.module';
+import { ClientPostureModule } from '../client-posture/client-posture.module';
 import { AdminBillingActionsService } from './admin-billing-actions.service';
 import { AdminBillingController } from './admin-billing.controller';
 import { AdminBillingService } from './admin-billing.service';
@@ -26,6 +27,7 @@ import { AdminContextController } from './admin-context.controller';
 import { AdminEvidenceController } from './admin-evidence.controller';
 import { AdminPentestCreditsController } from './admin-pentest-credits.controller';
 import { AdminFrameworksController } from './admin-frameworks.controller';
+import { AdminPostureController } from './admin-posture.controller';
 
 @Module({
   imports: [
@@ -40,6 +42,7 @@ import { AdminFrameworksController } from './admin-frameworks.controller';
     BillingModule,
     SecurityPenetrationTestsModule,
     FrameworksModule,
+    ClientPostureModule,
   ],
   controllers: [
     AdminOrganizationsController,
@@ -52,6 +55,7 @@ import { AdminFrameworksController } from './admin-frameworks.controller';
     AdminPentestCreditsController,
     AdminBillingController,
     AdminFrameworksController,
+    AdminPostureController,
   ],
   providers: [
     AdminOrganizationsService,

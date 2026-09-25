@@ -128,5 +128,8 @@ model Organization {
   offboardingChecklistCompletions  OffboardingChecklistCompletion[]
   offboardingAccessRevocations     OffboardingAccessRevocation[]
 
+  // MSP: posture
+  clientPostureSnapshots ClientPostureSnapshot[]
+
   @@index([slug])
 }

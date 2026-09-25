@@ -13,7 +13,12 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
-import { ApiExcludeController, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiExcludeController,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { PlatformAdminGuard } from '../auth/platform-admin.guard';
 import { AdminOrganizationsService } from './admin-organizations.service';
@@ -23,6 +28,8 @@ import { SkipAdminAuditLog } from './skip-admin-audit-log.decorator';
 import { InviteMemberDto } from './dto/invite-member.dto';
 import { UpdateAdminOrganizationDto } from './dto/update-admin-organization.dto';
 import { PurgeOrganizationDto } from './dto/purge-organization.dto';
+import { ClientPostureQueryService } from '../client-posture/client-posture-query.service';
+import { attachPosture } from './admin-posture.helper';
 
 @ApiExcludeController()
 @ApiTags('Admin - Organizations')
@@ -34,6 +41,7 @@ export class AdminOrganizationsController {
   constructor(
     private readonly service: AdminOrganizationsService,
     private readonly purgeService: PurgeOrganizationService,
+    private readonly postureQuery: ClientPostureQueryService,
   ) {}
 
   @Get()
@@ -43,11 +51,19 @@ export class AdminOrganizationsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.service.listOrganizations({
+    const result = await this.service.listOrganizations({
       search,
       page: Math.max(1, parseInt(page || '1', 10) || 1),
       limit: Math.min(100, Math.max(1, parseInt(limit || '50', 10) || 50)),
     });
+    // MSP: posture — latest snapshot per org in one query (no N+1).
+    const postureByOrg = await this.postureQuery.getLatestForOrganizations(
+      result.data.map((org) => org.id),
+    );
+    return {
+      ...result,
+      data: attachPosture({ organizations: result.data, postureByOrg }),
+    };
   }
 
   @Get('activity')

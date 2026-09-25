@@ -2,7 +2,6 @@
 
 import { api } from '@/lib/api-client';
 import {
-  Badge,
   Button,
   DataTableFilters,
   DataTableHeader,
@@ -10,53 +9,30 @@ import {
   Stack,
   Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
   Text,
 } from '@trycompai/design-system';
-import {
-  Renew,
-  View,
-} from '@trycompai/design-system/icons';
+import { Renew } from '@trycompai/design-system/icons';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
+import type { AdminOrg, AdminOrgsResponse } from './admin-org-types';
+import { parseOrgSort, sortOrgs, type OrgSort } from './org-posture-sort';
+import { OrgRow } from './OrgRow';
+import { COLUMN_VISIBILITY_CLASSES } from './PostureCells';
+import { PostureSortSelect } from './PostureSortSelect';
 
 const PAGE_SIZE = 25;
 
-interface AdminOrg {
-  id: string;
-  name: string;
-  slug: string;
-  logo: string | null;
-  createdAt: string;
-  hasAccess: boolean;
-  onboardingCompleted: boolean;
-  memberCount: number;
-  owner: { id: string; name: string; email: string } | null;
-}
-
-interface AdminOrgsResponse {
-  data: AdminOrg[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
-async function fetchOrgs(
-  search: string,
-  page: number,
-): Promise<AdminOrgsResponse> {
+async function fetchOrgs(search: string, page: number): Promise<AdminOrgsResponse> {
   const params = new URLSearchParams({
     limit: String(PAGE_SIZE),
     page: String(page),
   });
   if (search) params.set('search', search);
-  const res = await api.get<AdminOrgsResponse>(
-    `/v1/admin/organizations?${params}`,
-  );
+  const res = await api.get<AdminOrgsResponse>(`/v1/admin/organizations?${params}`);
   if (res.error) throw new Error(res.error);
   return res.data ?? { data: [], total: 0, page: 1, limit: PAGE_SIZE };
 }
@@ -80,6 +56,7 @@ export function OrganizationsTable({
 
   const page = Math.max(1, parseInt(searchParams.get('page') ?? String(initialPage), 10));
   const search = searchParams.get('search') ?? initialSearch;
+  const sort = parseOrgSort(searchParams.get('sort'));
 
   const [inputValue, setInputValue] = useState(search);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -94,12 +71,14 @@ export function OrganizationsTable({
         page: initialPage,
         limit: PAGE_SIZE,
       },
-      revalidateOnMount:
-        search !== initialSearch || page !== initialPage || !initialOrgs.length,
+      revalidateOnMount: search !== initialSearch || page !== initialPage || !initialOrgs.length,
     },
   );
 
-  const orgs = data?.data ?? [];
+  const orgs = useMemo(
+    () => sortOrgs({ orgs: Array.isArray(data?.data) ? data.data : [], sort }),
+    [data, sort],
+  );
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -135,6 +114,10 @@ export function OrganizationsTable({
     updateParams({ page: newPage > 1 ? String(newPage) : null });
   };
 
+  const handleSortChange = (next: OrgSort) => {
+    updateParams({ sort: next === 'name' ? null : next });
+  };
+
   return (
     <Stack gap="md">
       <DataTableHeader>
@@ -144,6 +127,7 @@ export function OrganizationsTable({
           onChange={handleSearchChange}
         />
         <DataTableFilters>
+          <PostureSortSelect value={sort} onChange={handleSortChange} />
           <Button
             variant="outline"
             onClick={() => mutate()}
@@ -163,108 +147,38 @@ export function OrganizationsTable({
           <Text variant="muted">No organizations found.</Text>
         </div>
       ) : (
-        <Table
-          variant="bordered"
-          pagination={{
-            page,
-            pageCount: totalPages,
-            onPageChange: handlePageChange,
-          }}
-        >
-          <TableHeader>
-            <TableRow>
-              <TableHead>Organization</TableHead>
-              <TableHead>Owner</TableHead>
-              <TableHead>Members</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {[...orgs].sort((a, b) => a.name.localeCompare(b.name)).map((org) => (
-              <OrgRow
-                key={org.id}
-                org={org}
-                orgId={orgId}
-              />
-            ))}
-          </TableBody>
-        </Table>
+        <div className={COLUMN_VISIBILITY_CLASSES} data-testid="organizations-table">
+          <Table
+            variant="bordered"
+            pagination={{
+              page,
+              pageCount: totalPages,
+              onPageChange: handlePageChange,
+            }}
+          >
+            <TableHeader>
+              <TableRow>
+                <TableHead>Organization</TableHead>
+                <TableHead data-col="lg">Owner</TableHead>
+                <TableHead>Score</TableHead>
+                <TableHead>Failing checks</TableHead>
+                <TableHead data-col="md">Overdue tasks</TableHead>
+                <TableHead data-col="md">Open findings</TableHead>
+                <TableHead data-col="lg">Expiring (30d)</TableHead>
+                <TableHead data-col="xl">Members</TableHead>
+                <TableHead data-col="xl">Created</TableHead>
+                <TableHead data-col="md">Status</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {orgs.map((org) => (
+                <OrgRow key={org.id} org={org} orgId={orgId} />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </Stack>
-  );
-}
-
-function OrgRow({
-  org,
-  orgId,
-}: {
-  org: AdminOrg;
-  orgId: string;
-}) {
-  const router = useRouter();
-  const detailHref = `/${orgId}/admin/organizations/${org.id}`;
-
-  return (
-    <TableRow>
-      <TableCell>
-        <div className="max-w-[300px]">
-          <div className="truncate">
-            <Text size="sm" weight="medium">
-              {org.name}
-            </Text>
-          </div>
-          <div className="truncate">
-            <Text size="xs" variant="muted">
-              {org.id}
-            </Text>
-          </div>
-        </div>
-      </TableCell>
-      <TableCell>
-        {org.owner ? (
-          <div className="max-w-[250px]">
-            <div className="truncate">
-              <Text size="sm">{org.owner.name}</Text>
-            </div>
-            <div className="truncate">
-              <Text size="xs" variant="muted">
-                {org.owner.email}
-              </Text>
-            </div>
-          </div>
-        ) : (
-          <Text size="xs" variant="muted">
-            No owner
-          </Text>
-        )}
-      </TableCell>
-      <TableCell>
-        <Text size="sm" variant="muted">
-          {org.memberCount}
-        </Text>
-      </TableCell>
-      <TableCell>
-        <Text size="sm" variant="muted">
-          {new Date(org.createdAt).toLocaleDateString()}
-        </Text>
-      </TableCell>
-      <TableCell>
-        <Badge variant={org.hasAccess ? 'default' : 'destructive'}>
-          {org.hasAccess ? 'Active' : 'Inactive'}
-        </Badge>
-      </TableCell>
-      <TableCell>
-        <Button
-          size="sm"
-          variant="outline"
-          iconLeft={<View size={16} />}
-          onClick={() => router.push(detailHref)}
-        >
-          View
-        </Button>
-      </TableCell>
-    </TableRow>
   );
 }
