@@ -3,8 +3,9 @@ const mockDb = {
     findMany: jest.fn(),
     updateMany: jest.fn(),
     update: jest.fn(),
+    count: jest.fn(),
   },
-  haloTicketLink: { findUnique: jest.fn(), update: jest.fn() },
+  haloTicketLink: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
 };
 
 jest.mock('@db', () => ({ db: mockDb }));
@@ -53,6 +54,8 @@ function fakeClient(overrides: Partial<Record<keyof HaloClient, jest.Mock>> = {}
     addAction: jest.fn().mockResolvedValue(1),
     setStatus: jest.fn().mockResolvedValue(undefined),
     getTicket: jest.fn().mockResolvedValue({ id: 55, status_id: 2 }),
+    updateClientCustomFields: jest.fn().mockResolvedValue(undefined),
+    attachToTicket: jest.fn().mockResolvedValue(5),
     ...overrides,
   } as unknown as HaloClient;
 }
@@ -185,6 +188,45 @@ describe('HaloOutboxService', () => {
     await expect(service.processEvent({ event: reopen as never, client, now: NOW })).resolves.toBe('done');
     expect(client.setStatus).toHaveBeenCalledWith({ ticketId: 55, statusId: 2 });
     expect(client.createTicket).not.toHaveBeenCalled();
+  });
+
+  it('pushes client custom fields to the mapped Halo client', async () => {
+    mockDb.haloTicketLink.findUnique.mockResolvedValue(link({ state: 'open', entityType: 'posture' }));
+    const client = fakeClient();
+    const push = event({ kind: 'push_custom_fields', payload: { fields: { CFCompAIScore: 80 } } });
+    await expect(service.processEvent({ event: push as never, client, now: NOW })).resolves.toBe('done');
+    expect(client.updateClientCustomFields).toHaveBeenCalledWith({ clientId: 42, fields: { CFCompAIScore: 80 } });
+  });
+
+  it('attaches a file once earlier events are sent', async () => {
+    mockDb.haloTicketLink.findUnique.mockResolvedValue(link({ haloTicketId: 55, state: 'open' }));
+    mockDb.haloOutboxEvent.count.mockResolvedValue(0);
+    const client = fakeClient();
+    const attach = event({ kind: 'attach_file', payload: { filename: 'r.pdf', base64: 'JVBERg==' } });
+    await expect(service.processEvent({ event: attach as never, client, now: NOW })).resolves.toBe('done');
+    expect(client.attachToTicket).toHaveBeenCalledWith({ ticketId: 55, filename: 'r.pdf', base64: 'JVBERg==' });
+  });
+
+  it('defers attach and ordered close while an earlier event is queued', async () => {
+    mockDb.haloTicketLink.findUnique.mockResolvedValue(link({ haloTicketId: 55, state: 'open' }));
+    mockDb.haloOutboxEvent.count.mockResolvedValue(1);
+    const client = fakeClient();
+    const attach = event({ kind: 'attach_file', payload: { filename: 'r.pdf', base64: 'JVBERg==' } });
+    await expect(service.processEvent({ event: attach as never, client, now: NOW })).resolves.toBe('deferred');
+    const close = event({ kind: 'set_status', payload: { statusId: 9, afterPrior: true, markLinkResolved: true } });
+    await expect(service.processEvent({ event: close as never, client, now: NOW })).resolves.toBe('deferred');
+    expect(client.attachToTicket).not.toHaveBeenCalled();
+    expect(client.setStatus).not.toHaveBeenCalled();
+  });
+
+  it('marks a report link resolved after its ordered close', async () => {
+    mockDb.haloTicketLink.findUnique.mockResolvedValue(link({ haloTicketId: 55, state: 'open' }));
+    mockDb.haloOutboxEvent.count.mockResolvedValue(0);
+    const close = event({ kind: 'set_status', payload: { statusId: 9, afterPrior: true, markLinkResolved: true } });
+    await expect(service.processEvent({ event: close as never, client: fakeClient(), now: NOW })).resolves.toBe('done');
+    expect(mockDb.haloTicketLink.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'htl_1', state: 'open' } }),
+    );
   });
 
   it('retries a dead event', async () => {

@@ -20,6 +20,10 @@ export const SetStatusPayloadSchema = z.object({
   statusId: z.number().int().positive(),
   note: z.string().optional(),
   previousStatusId: optionalId,
+  /** Wait until earlier events on the link are sent (e.g. attach before close). */
+  afterPrior: z.boolean().optional(),
+  /** Mark the link resolved once the status is set (report tickets). */
+  markLinkResolved: z.boolean().optional(),
 });
 
 export const ReopenPayloadSchema = z.object({
