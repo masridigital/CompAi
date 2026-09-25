@@ -37,6 +37,8 @@ export async function proxy(request: NextRequest) {
     const hasToken = Boolean(sessionToken);
     const nextUrl = request.nextUrl;
     const requestHeaders = new Headers(request.headers);
+    // Forward the path to server components (layouts read it for redirects).
+    requestHeaders.set('x-pathname', nextUrl.pathname);
 
     // Add x-path-name and selected query hints for server components
     const response = NextResponse.next({
@@ -55,6 +57,12 @@ export async function proxy(request: NextRequest) {
 
     // Allow unauthenticated access to invite routes
     if (nextUrl.pathname.startsWith('/invite/')) {
+      return response;
+    }
+
+    // The 2FA challenge runs before a session exists (only the signed
+    // two_factor cookie is set), so it must be reachable without one.
+    if (nextUrl.pathname === '/auth/two-factor') {
       return response;
     }
 

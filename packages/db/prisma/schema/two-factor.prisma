@@ -1,0 +1,16 @@
+/// TOTP secret + backup codes for the better-auth `twoFactor` plugin (S6).
+/// Secret and backup codes are stored encrypted by better-auth.
+model TwoFactor {
+  id                      String    @id @default(dbgenerated("generate_prefixed_cuid('tfa'::text)"))
+  secret                  String
+  backupCodes             String
+  userId                  String
+  verified                Boolean?  @default(true)
+  failedVerificationCount Int?      @default(0)
+  lockedUntil             DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([secret])
+  @@index([userId])
+}

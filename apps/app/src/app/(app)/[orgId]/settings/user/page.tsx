@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { EmailNotificationPreferences } from './components/EmailNotificationPreferences';
 import { LoginEmailSettings } from './components/LoginEmailSettings';
 import { McpOrganizationSelector } from './components/McpOrganizationSelector';
+import { TwoFactorSettings } from './components/TwoFactorSettings';
 import type { McpOrganizationData } from './hooks/useMcpOrganization';
 
 export default async function UserSettings({
@@ -12,7 +13,7 @@ export default async function UserSettings({
 }) {
   const { orgId } = await params;
 
-  const [emailRes, mcpRes] = await Promise.all([
+  const [emailRes, mcpRes, meRes] = await Promise.all([
     serverApi.get<{
       email: string;
       preferences: {
@@ -34,6 +35,7 @@ export default async function UserSettings({
       } | null;
     }>('/v1/people/me/email-preferences'),
     serverApi.get<McpOrganizationData>('/v1/mcp/organization'),
+    serverApi.get<{ mfa?: { enabled: boolean } }>('/v1/auth/me'),
   ]);
 
   if (!emailRes.data?.email) {
@@ -43,6 +45,7 @@ export default async function UserSettings({
   return (
     <div className="space-y-6">
       <LoginEmailSettings currentEmail={emailRes.data.email} />
+      <TwoFactorSettings enabled={meRes.data?.mfa?.enabled === true} />
       <EmailNotificationPreferences
         initialPreferences={emailRes.data.preferences}
         email={emailRes.data.email}

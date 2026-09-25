@@ -115,6 +115,7 @@ describe('PlatformAdminGuard', () => {
       id: 'usr_admin',
       email: 'admin@platform.com',
       role: 'admin',
+      twoFactorEnabled: true,
     });
 
     const request = {
@@ -149,7 +150,7 @@ describe('PlatformAdminGuard', () => {
     await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
     expect(mockFindUnique).toHaveBeenCalledWith({
       where: { id: 'usr_1' },
-      select: { id: true, email: true, role: true },
+      select: { id: true, email: true, role: true, twoFactorEnabled: true },
     });
   });
 
@@ -169,6 +170,7 @@ describe('PlatformAdminGuard', () => {
       id: 'usr_admin',
       email: 'admin@test.com',
       role: 'admin',
+      twoFactorEnabled: true,
     });
     const ctx = buildContext({ authorization: 'Bearer token123' });
 
@@ -184,6 +186,7 @@ describe('PlatformAdminGuard', () => {
       id: 'usr_admin',
       email: 'admin@test.com',
       role: 'admin',
+      twoFactorEnabled: true,
     });
     const ctx = buildContext({ cookie: 'session=xyz' });
 
@@ -191,5 +194,41 @@ describe('PlatformAdminGuard', () => {
 
     const passedHeaders = mockGetSession.mock.calls[0][0].headers;
     expect(passedHeaders.get('cookie')).toBe('session=xyz');
+  });
+
+  describe('MFA enforcement (S6)', () => {
+    const originalFlag = process.env.REQUIRE_MFA_FOR_STAFF;
+    afterEach(() => {
+      if (originalFlag === undefined) delete process.env.REQUIRE_MFA_FOR_STAFF;
+      else process.env.REQUIRE_MFA_FOR_STAFF = originalFlag;
+    });
+
+    const adminWithout2fa = () => {
+      mockGetSession.mockResolvedValue({ user: { id: 'usr_admin' } });
+      mockFindUnique.mockResolvedValue({
+        id: 'usr_admin',
+        email: 'admin@test.com',
+        role: 'admin',
+        twoFactorEnabled: false,
+      });
+    };
+
+    it('blocks an admin without 2FA with 403 MFA_REQUIRED (default on)', async () => {
+      delete process.env.REQUIRE_MFA_FOR_STAFF;
+      adminWithout2fa();
+      const ctx = buildContext({ cookie: 'session=xyz' });
+      const error = await guard.canActivate(ctx).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(ForbiddenException);
+      expect((error as ForbiddenException).getResponse()).toEqual(
+        expect.objectContaining({ code: 'MFA_REQUIRED' }),
+      );
+    });
+
+    it('allows an admin without 2FA when REQUIRE_MFA_FOR_STAFF=false', async () => {
+      process.env.REQUIRE_MFA_FOR_STAFF = 'false';
+      adminWithout2fa();
+      const ctx = buildContext({ cookie: 'session=xyz' });
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    });
   });
 });

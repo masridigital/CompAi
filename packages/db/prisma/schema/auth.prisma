@@ -14,6 +14,8 @@ model User {
   banReason                      String?
   banExpires                     DateTime?
   isPlatformAdmin                Boolean   @default(false)
+  // MFA (better-auth twoFactor plugin)
+  twoFactorEnabled               Boolean?  @default(false)
 
   accounts                   Account[]
   auditLog                   AuditLog[]
@@ -36,6 +38,9 @@ model User {
   oauthAccessTokens OauthAccessToken[]
   oauthConsents     OauthConsent[]
   mcpOrgBinding     McpOrgBinding?
+
+  // MFA: better-auth twoFactor plugin
+  twoFactors TwoFactor[]
 
   @@unique([email])
 }

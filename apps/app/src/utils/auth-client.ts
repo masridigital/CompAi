@@ -4,6 +4,7 @@ import {
   magicLinkClient,
   multiSessionClient,
   organizationClient,
+  twoFactorClient,
 } from 'better-auth/client/plugins';
 import { createAuthClient } from 'better-auth/react';
 import { ac, allRoles } from './permissions';
@@ -32,6 +33,14 @@ export const authClient = createAuthClient({
     emailOTPClient(),
     magicLinkClient(),
     multiSessionClient(),
+    twoFactorClient({
+      // Email-OTP sign-in answers `{ twoFactorRedirect: true }` for users with
+      // 2FA enabled; send them to the TOTP challenge page.
+      onTwoFactorRedirect: () => {
+        if (typeof window === 'undefined') return;
+        window.location.href = '/auth/two-factor';
+      },
+    }),
   ],
   // Authentication is handled via httpOnly cookies - no localStorage tokens needed
 });

@@ -31,6 +31,7 @@ import {
   getBetterAuthTrustedOrigins,
   isStaticTrustedOrigin,
 } from './origin-policy';
+import { mfaSignInChallenge, twoFactorPlugin } from './two-factor.config';
 
 export {
   getBetterAuthTrustedOrigins,
@@ -521,6 +522,9 @@ export const auth = betterAuth({
     admin({
       defaultRole: 'user',
     }),
+    // MFA (S6): TOTP + backup codes, challenged on magic link / OTP / OAuth.
+    twoFactorPlugin(),
+    mfaSignInChallenge(),
     // OAuth 2.0 / OIDC provider for hosted MCP (Gram). Wraps oidcProvider and
     // exposes /api/auth/mcp/* (authorize, token, register) + the two
     // /api/auth/.well-known/* discovery docs, plus the auth.api.getMcpSession()

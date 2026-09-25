@@ -58,10 +58,17 @@ export function assertOrgClaim({
     logger.error(
       `${definition.signingSecretEnvVar} is not set; cannot verify org claim for "${definition.name}"`,
     );
-    throw new UnauthorizedException('Signed organization claim cannot be verified');
+    throw new UnauthorizedException(
+      'Signed organization claim cannot be verified',
+    );
   }
 
-  const result = verifyOrgClaim({ organizationId, timestamp, signature, secret });
+  const result = verifyOrgClaim({
+    organizationId,
+    timestamp,
+    signature,
+    secret,
+  });
   if (!result.ok) {
     throw new UnauthorizedException(
       `Invalid signed organization claim (${result.reason})`,

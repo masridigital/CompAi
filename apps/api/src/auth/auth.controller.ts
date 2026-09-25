@@ -15,6 +15,7 @@ import { PermissionGuard } from './permission.guard';
 import { RequirePermission } from './require-permission.decorator';
 import { AuthContext } from './auth-context.decorator';
 import { HybridAuthGuard } from './hybrid-auth.guard';
+import { isMfaSetupRequired } from './mfa-policy';
 import { SkipOrgCheck } from './skip-org-check.decorator';
 import type { AuthContext as AuthContextType } from './types';
 
@@ -45,6 +46,7 @@ export class AuthController {
             name: true,
             image: true,
             role: true,
+            twoFactorEnabled: true,
           },
         }),
         db.member.findMany({
@@ -94,6 +96,14 @@ export class AuthController {
       })),
       pendingInvitation,
       hasInactiveMembership: inactiveMembershipCount > 0,
+      // S6: lets the app send staff without 2FA to the setup page.
+      mfa: {
+        enabled: user?.twoFactorEnabled === true,
+        required: isMfaSetupRequired({
+          role: user?.role,
+          twoFactorEnabled: user?.twoFactorEnabled,
+        }),
+      },
     };
   }
 
