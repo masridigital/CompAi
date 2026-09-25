@@ -26,6 +26,10 @@ import { AdminContextController } from './admin-context.controller';
 import { AdminEvidenceController } from './admin-evidence.controller';
 import { AdminPentestCreditsController } from './admin-pentest-credits.controller';
 import { AdminFrameworksController } from './admin-frameworks.controller';
+import { AdminMspStaffController } from './admin-msp-staff.controller';
+import { AdminMspStaffService } from './admin-msp-staff.service';
+import { AdminUsersController } from './admin-users.controller';
+import { AdminUsersService } from './admin-users.service';
 
 @Module({
   imports: [
@@ -52,6 +56,8 @@ import { AdminFrameworksController } from './admin-frameworks.controller';
     AdminPentestCreditsController,
     AdminBillingController,
     AdminFrameworksController,
+    AdminMspStaffController,
+    AdminUsersController,
   ],
   providers: [
     AdminOrganizationsService,
@@ -60,6 +66,8 @@ import { AdminFrameworksController } from './admin-frameworks.controller';
     PurgeOrganizationService,
     PurgeOrganizationSnapshotService,
     PurgeOrganizationExternalService,
+    AdminMspStaffService,
+    AdminUsersService,
   ],
 })
 export class AdminOrganizationsModule {}

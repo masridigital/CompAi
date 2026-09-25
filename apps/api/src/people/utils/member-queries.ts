@@ -108,24 +108,33 @@ export class MemberQueries {
   }
 
   /**
-   * Create a new member
+   * Upsert args for one member. (userId, organizationId) is unique, so a
+   * previously deactivated row is reactivated instead of inserting a duplicate.
+   */
+  private static memberUpsertArgs(organizationId: string, m: CreatePeopleDto) {
+    const fields = {
+      role: m.role,
+      department: m.department || 'none',
+      isActive: m.isActive ?? true,
+      fleetDmLabelId: m.fleetDmLabelId || null,
+      jobTitle: m.jobTitle || null,
+    };
+    return {
+      where: { userId_organizationId: { userId: m.userId, organizationId } },
+      create: { organizationId, userId: m.userId, ...fields },
+      update: { ...fields, deactivated: false, offboardDate: null },
+      select: this.MEMBER_SELECT,
+    };
+  }
+
+  /**
+   * Create a new member (or reactivate the user's deactivated row)
    */
   static async createMember(
     organizationId: string,
     createData: CreatePeopleDto,
   ): Promise<PeopleResponseDto> {
-    return db.member.create({
-      data: {
-        organizationId,
-        userId: createData.userId,
-        role: createData.role,
-        department: createData.department || 'none',
-        isActive: createData.isActive ?? true,
-        fleetDmLabelId: createData.fleetDmLabelId || null,
-        jobTitle: createData.jobTitle || null,
-      },
-      select: this.MEMBER_SELECT,
-    });
+    return db.member.upsert(this.memberUpsertArgs(organizationId, createData));
   }
 
   /**
@@ -280,37 +289,16 @@ export class MemberQueries {
   }
 
   /**
-   * Bulk create members for an organization
+   * Bulk create members (reactivating deactivated rows) in one transaction
    */
   static async bulkCreateMembers(
     organizationId: string,
     memberData: CreatePeopleDto[],
   ): Promise<PeopleResponseDto[]> {
-    // Prepare data for createMany
-    const data = memberData.map((member) => ({
-      organizationId,
-      userId: member.userId,
-      role: member.role,
-      department: member.department || 'none',
-      isActive: member.isActive ?? true,
-      fleetDmLabelId: member.fleetDmLabelId || null,
-      jobTitle: member.jobTitle || null,
-    }));
-
-    // Perform bulk insert
-    await db.member.createMany({
-      data,
-      skipDuplicates: true, // Prevents error if userId is already a member
-    });
-
-    // Fetch the created members for response (by userId, since ids are generated)
-    return db.member.findMany({
-      where: {
-        organizationId,
-        userId: { in: memberData.map((m) => m.userId) },
-      },
-      select: this.MEMBER_SELECT,
-      orderBy: { createdAt: 'desc' },
-    });
+    return db.$transaction(
+      memberData.map((m) =>
+        db.member.upsert(this.memberUpsertArgs(organizationId, m)),
+      ),
+    );
   }
 }

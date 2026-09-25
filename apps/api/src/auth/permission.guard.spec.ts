@@ -289,6 +289,40 @@ describe('PermissionGuard', () => {
       );
     });
 
+    it('bypasses RBAC only for platform admins (isPlatformAdmin=true)', async () => {
+      jest
+        .spyOn(reflector, 'getAllAndOverride')
+        .mockReturnValue([{ resource: 'organization', actions: ['delete'] }]);
+
+      const context = createMockExecutionContext({
+        isPlatformAdmin: true,
+        headers: { cookie: 'session=abc' },
+      });
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(mockHasPermission).not.toHaveBeenCalled();
+    });
+
+    it('gives msp_staff (isPlatformAdmin=false) no bypass: RBAC still decides', async () => {
+      jest
+        .spyOn(reflector, 'getAllAndOverride')
+        .mockReturnValue([{ resource: 'organization', actions: ['delete'] }]);
+      mockHasPermission.mockResolvedValue({ success: false, error: 'denied' });
+
+      // HybridAuthGuard sets isPlatformAdmin only for User.role === 'admin',
+      // so an msp_staff session always arrives here with it false.
+      const context = createMockExecutionContext({
+        isPlatformAdmin: false,
+        userRoles: ['msp_tech'],
+        headers: { cookie: 'session=abc' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(mockHasPermission).toHaveBeenCalled();
+    });
+
     it('should deny access when SDK throws', async () => {
       jest
         .spyOn(reflector, 'getAllAndOverride')

@@ -32,6 +32,7 @@ const SEGMENT_TO_RESOURCE: Record<
     entity: AuditLogEntityType.organization,
     singular: 'billing',
   },
+  'msp-staff': { entity: AuditLogEntityType.people, singular: 'MSP staff' },
 };
 
 const SPECIAL_ACTION_DESCRIPTIONS: Record<string, string> = {

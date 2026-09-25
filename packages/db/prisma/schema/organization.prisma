@@ -128,5 +128,8 @@ model Organization {
   offboardingChecklistCompletions  OffboardingChecklistCompletion[]
   offboardingAccessRevocations     OffboardingAccessRevocation[]
 
+  // MSP: S4 session active-org FK
+  activeSessions Session[] @relation("SessionActiveOrganization")
+
   @@index([slug])
 }

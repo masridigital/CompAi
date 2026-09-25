@@ -67,7 +67,8 @@ model Session {
   deviceAgent    Boolean  @default(false)
   deviceAgentFor Device[] @relation("DeviceAgentSession")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeOrganization Organization? @relation("SessionActiveOrganization", fields: [activeOrganizationId], references: [id], onDelete: SetNull)
 
   @@unique([token])
   @@index([userId])
@@ -241,6 +242,10 @@ model Member {
   backgroundCheckRequests          BackgroundCheckRequest[]
   offboardingChecklistCompletions  OffboardingChecklistCompletion[]
   offboardingAccessRevocations     OffboardingAccessRevocation[]
+
+  // One membership row per user per org (S4). Re-adding a user reactivates
+  // the existing row instead of inserting a duplicate.
+  @@unique([userId, organizationId])
 }
 
 model Invitation {

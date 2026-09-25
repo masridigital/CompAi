@@ -16,11 +16,33 @@
  * reintroduce inline `user.role === 'admin'` participation checks anywhere —
  * call this instead so the internal-org exception stays consistent.
  *
+ * MSP staff (`User.role === 'msp_staff'`) are MSP technicians who hold normal
+ * `Member` rows in the client orgs they support. Like platform admins they are
+ * NOT participants of customer orgs (same internal-org exception), but unlike
+ * platform admins they get NO platform-admin privileges.
+ *
  * SCOPE: this governs *participation* only. It must never be used to decide
  * platform-admin access or privileges — those stay with PlatformAdminGuard /
  * `isPlatformAdmin`, which are unaffected by an org being internal.
  */
 export const PLATFORM_ADMIN_ROLE = 'admin';
+
+/** Global role for MSP technicians. Never grants platform-admin privileges. */
+export const MSP_STAFF_ROLE = 'msp_staff';
+
+/** Global `User.role` values excluded from customer-org participation. */
+export const NON_PARTICIPANT_ROLES: readonly string[] = [
+  PLATFORM_ADMIN_ROLE,
+  MSP_STAFF_ROLE,
+];
+
+/** True when the global role is one of {@link NON_PARTICIPANT_ROLES}. */
+export function isNonParticipantRole(
+  userRole: string | null | undefined,
+): boolean {
+  if (!userRole) return false;
+  return NON_PARTICIPANT_ROLES.includes(userRole);
+}
 
 export interface OrgParticipationContext {
   /** Whether the organization is platform-operated (e.g. Comp AI's own org). */
@@ -32,14 +54,14 @@ export interface OrgParticipationContext {
  * organization with the given context.
  *
  * @param userRole The global `User.role` value (e.g. `'admin'` for platform
- *   admins, `'user'`/null otherwise). This is NOT the org-scoped member role.
+ *   admins, `'msp_staff'` for MSP techs, `'user'`/null otherwise). This is NOT the org-scoped member role.
  */
 export function isOrgParticipant(
   userRole: string | null | undefined,
   { orgIsInternal }: OrgParticipationContext,
 ): boolean {
   if (orgIsInternal) return true;
-  return userRole !== PLATFORM_ADMIN_ROLE;
+  return !isNonParticipantRole(userRole);
 }
 
 /**

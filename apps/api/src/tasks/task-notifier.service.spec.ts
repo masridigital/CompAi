@@ -318,7 +318,7 @@ describe('TaskNotifierService', () => {
   // platform admins are excluded from customer orgs but included in internal
   // ones. A change to that helper must not silently reroute these notifications.
   const CUSTOMER_PARTICIPANT_WHERE = {
-    AND: [{ user: { OR: [{ role: { not: 'admin' } }, { role: null }] } }],
+    AND: [{ user: { OR: [{ role: { notIn: ['admin', 'msp_staff'] } }, { role: null }] } }],
   };
 
   const memberWhere = () => mockDb.member.findMany.mock.calls[0][0].where;

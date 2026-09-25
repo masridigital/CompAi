@@ -97,6 +97,25 @@ describe('PlatformAdminGuard', () => {
     );
   });
 
+  it('throws ForbiddenException for msp_staff (no platform-admin bypass)', async () => {
+    mockGetSession.mockResolvedValue({ user: { id: 'usr_tech' } });
+    mockFindUnique.mockResolvedValue({
+      id: 'usr_tech',
+      email: 'tech@msp.com',
+      role: 'msp_staff',
+    });
+    const request = {
+      headers: { cookie: 'session=abc' },
+      isPlatformAdmin: undefined as boolean | undefined,
+    };
+    const ctx = {
+      switchToHttp: () => ({ getRequest: () => request }),
+    } as unknown as ExecutionContext;
+
+    await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
+    expect(request.isPlatformAdmin).toBeUndefined();
+  });
+
   it('throws ForbiddenException when user role is null', async () => {
     mockGetSession.mockResolvedValue({ user: { id: 'usr_1' } });
     mockFindUnique.mockResolvedValue({

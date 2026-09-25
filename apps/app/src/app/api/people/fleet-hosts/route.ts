@@ -1,6 +1,7 @@
 import type { Host } from '@/app/(app)/[orgId]/people/devices/types';
 import { getFleetInstance } from '@/lib/fleet';
 import { getOrgIsInternal } from '@/lib/org-participation';
+import { orgParticipantMemberWhereForFlag } from '@/lib/org-participation-rule';
 import { requireApiPermission } from '@/lib/permissions.server';
 import { db } from '@db/server';
 import { NextResponse } from 'next/server';
@@ -21,7 +22,7 @@ export async function GET(req: Request) {
     where: {
       organizationId,
       deactivated: false,
-      ...(orgIsInternal ? {} : { NOT: { user: { role: 'admin' } } }),
+      ...orgParticipantMemberWhereForFlag(orgIsInternal),
     },
     include: { user: true },
   });

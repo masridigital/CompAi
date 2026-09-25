@@ -62,7 +62,7 @@ describe('org-participation', () => {
 
     it('excludes only platform admins (incl. null roles) for customer orgs', () => {
       expect(orgParticipantMemberWhereForFlag(false)).toEqual({
-        AND: [{ user: { OR: [{ role: { not: 'admin' } }, { role: null }] } }],
+        AND: [{ user: { OR: [{ role: { notIn: ['admin', 'msp_staff'] } }, { role: null }] } }],
       });
     });
 
@@ -77,7 +77,7 @@ describe('org-participation', () => {
       };
       expect(where.user).toEqual({ id: { in: ['u1', 'u2'] } });
       expect(where.AND).toEqual([
-        { user: { OR: [{ role: { not: 'admin' } }, { role: null }] } },
+        { user: { OR: [{ role: { notIn: ['admin', 'msp_staff'] } }, { role: null }] } },
       ]);
     });
   });
@@ -91,7 +91,7 @@ describe('org-participation', () => {
     it('excludes only platform admins (incl. null roles) for customer orgs', async () => {
       orgFindUnique.mockResolvedValue({ isInternal: false });
       await expect(orgParticipantMemberWhere('org_1')).resolves.toEqual({
-        AND: [{ user: { OR: [{ role: { not: 'admin' } }, { role: null }] } }],
+        AND: [{ user: { OR: [{ role: { notIn: ['admin', 'msp_staff'] } }, { role: null }] } }],
       });
     });
   });

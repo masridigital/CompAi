@@ -1,6 +1,6 @@
 import {
   BUILT_IN_ROLE_OBLIGATIONS,
-  PLATFORM_ADMIN_ROLE,
+  isNonParticipantRole,
   type RoleObligations,
   allRoles,
   isOrgParticipant,
@@ -47,8 +47,8 @@ export async function filterComplianceMembers<T extends MemberWithRole>(
 
   // The internal flag only changes a platform admin's participation, so skip the
   // extra query entirely when the list has no platform admins (the common case).
-  const hasPlatformAdmin = members.some(
-    (m) => m.user?.role === PLATFORM_ADMIN_ROLE,
+  const hasPlatformAdmin = members.some((m) =>
+    isNonParticipantRole(m.user?.role),
   );
   const orgIsInternal = hasPlatformAdmin
     ? await getOrgIsInternal(organizationId)

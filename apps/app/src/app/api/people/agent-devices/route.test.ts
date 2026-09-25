@@ -13,6 +13,9 @@ vi.mock('@db/server', () => ({
     integrationConnection: {
       findMany: vi.fn(async () => []),
     },
+    organization: {
+      findUnique: vi.fn(async () => ({ isInternal: false })),
+    },
   },
 }));
 
@@ -94,6 +97,15 @@ describe('GET /api/people/agent-devices', () => {
     const body = await res.json();
     expect(body.data[0].complianceStatus).toBe('compliant');
     expect(body.data[0].daysSinceLastCheckIn).toBe(0);
+  });
+
+  it('excludes non-participant global roles (admin, msp_staff) in customer orgs', async () => {
+    mockedFindMany.mockResolvedValue([]);
+    await GET(req());
+    const where = mockedFindMany.mock.calls[0][0].where;
+    expect(where.member.AND).toEqual([
+      { user: { OR: [{ role: { notIn: ['admin', 'msp_staff'] } }, { role: null }] } },
+    ]);
   });
 
   it('marks a fresh + !isCompliant device as non_compliant', async () => {
