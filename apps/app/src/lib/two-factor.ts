@@ -43,10 +43,18 @@ export function secretFromTotpUri(uri: string): string | null {
   }
 }
 
+// Browsers normalize a backslash to "/" (slash-backslash-evil.com → //evil.com)
+// and control chars (tab, newline, ...) are stripped by the URL parser, so
+// both can smuggle a protocol-relative URL past naive prefix checks.
+// eslint-disable-next-line no-control-regex
+const UNSAFE_REDIRECT_CHARS = /[\\\u0000-\u001f\u007f]/;
+
 /**
- * Resolve the post-verification destination. Accepts a relative path, or an
- * absolute URL on this app's origin or the employee portal's origin. Anything
- * else falls back to "/" (no open redirect).
+ * Resolve the post-verification destination. The value is resolved against
+ * the app origin with the URL parser (the same way the browser will) and must
+ * land on this app's origin or the employee portal's origin. Anything else,
+ * including values with backslashes or control characters, falls back to "/"
+ * (no open redirect).
  */
 export function resolvePostTwoFactorRedirect({
   redirectTo,
@@ -57,18 +65,17 @@ export function resolvePostTwoFactorRedirect({
   appOrigin: string;
   portalUrl?: string | null;
 }): string {
-  if (!redirectTo) return '/';
-  if (redirectTo.startsWith('/') && !redirectTo.startsWith('//')) {
-    return redirectTo.split('?')[0].includes('://') ? '/' : redirectTo;
-  }
+  if (!redirectTo || UNSAFE_REDIRECT_CHARS.test(redirectTo)) return '/';
+  const app = safeOrigin(appOrigin);
+  if (!app) return '/';
   let target: URL;
   try {
-    target = new URL(redirectTo);
+    target = new URL(redirectTo, app);
   } catch {
     return '/';
   }
   if (target.protocol !== 'https:' && target.protocol !== 'http:') return '/';
-  if (target.origin === appOrigin) {
+  if (target.origin === app) {
     return `${target.pathname}${target.search}${target.hash}`;
   }
   if (portalUrl && safeOrigin(portalUrl) === target.origin) {
@@ -79,7 +86,8 @@ export function resolvePostTwoFactorRedirect({
 
 function safeOrigin(url: string): string | null {
   try {
-    return new URL(url).origin;
+    const { origin } = new URL(url);
+    return origin === 'null' ? null : origin;
   } catch {
     return null;
   }
