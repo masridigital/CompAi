@@ -34,6 +34,8 @@ Generate secrets:
 ```bash
 for n in SECRET_KEY ENCRYPTION_KEY AUTH_SECRET; do echo "$n=$(openssl rand -base64 32)"; done
 for n in INTERNAL_API_TOKEN SERVICE_TOKEN_TRIGGER SERVICE_TOKEN_PORTAL REVALIDATION_SECRET \
+         SERVICE_TOKEN_SIGNING_SECRET_TRIGGER SERVICE_TOKEN_SIGNING_SECRET_PORTAL \
+         SERVICE_TOKEN_SIGNING_SECRET_TRUST \
          HALOPSA_WEBHOOK_SECRET UPSTASH_REDIS_REST_TOKEN REDIS_PASSWORD; do
   echo "$n=$(openssl rand -hex 32)"
 done
@@ -61,6 +63,7 @@ Rules:
 
 - `SECRET_KEY` is the same in the API and the app. The portal's `BETTER_AUTH_SECRET` uses the same value.
 - `INTERNAL_API_TOKEN` and `SERVICE_TOKEN_TRIGGER` are the same everywhere they appear.
+- Each `SERVICE_TOKEN_SIGNING_SECRET_*` is the same on the API and its caller: `_TRIGGER` in the app and both Trigger.dev environments, `_PORTAL` in the portal, `_TRUST` on the trust site. The API template sets `SERVICE_TOKEN_REQUIRE_ORG_SIGNATURE=true`. When you add signing to a running deployment, deploy the API first with the flag `false`, then the callers, then turn the flag on (see SELF_HOSTING.md, "Service-token org signing").
 - `ENCRYPTION_KEY` protects every stored integration credential. Back it up. If you lose it, every integration must be reconnected.
 - `env/*.env` and `.env` are git-ignored. Never commit them.
 
