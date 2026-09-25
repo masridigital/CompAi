@@ -54,6 +54,51 @@ All sections are built on `claude/great-bardeen-33qwpl`. Nothing ran against a l
 - API keys are not held to the role-grant check. A key limited to member permissions can still invite an admin.
 - The 2FA sign-in challenge for magic link, OTP and OAuth depends on better-auth internals. Test it end to end, and after every better-auth upgrade.
 
+### 0.1 Review and smoke test (2026-09-25)
+
+**Reviews** (security, RBAC endpoint audit, correctness) of `0ccfcc2..HEAD`. All confirmed findings are fixed:
+
+| Finding | Fix |
+|---|---|
+| HIGH: any org admin could bind their connection to another client's Halo client ID and read or write that client's Halo data | Binding is admin-only (`metadata.halopsaBinding`). Customer create and update of `halopsa` connections returns 403. All Halo consumers read only the admin binding. |
+| HIGH: social sign-in with an ID token skipped the 2FA challenge | The challenge runs on every endpoint that creates a session |
+| MEDIUM: open redirect after the 2FA step | Same-origin check with `new URL()`; backslashes and control characters rejected |
+| MEDIUM: un-enrolled staff could call better-auth `/admin/*` | Staff MFA guard on better-auth admin and organization mutation endpoints |
+| MEDIUM: service-token signing off in the deploy templates; rollout order could break callers | Secrets plus `SERVICE_TOKEN_REQUIRE_ORG_SIGNATURE=true` in templates. API accepts unsigned calls only while it has no secret and enforcement is off. |
+| Correctness: check tickets flipped between two connections, outbox ordering, self-resolve seen as external close, replay marker, reconcile starvation, device-hook load, races | Fixed in the HaloPSA module, with tests |
+| Audit gaps: global role changes and Halo admin actions not persisted | Explicit `auditLog` rows under the affected org |
+| create-org made the platform admin `owner` | Admin joins as `admin`; an optional `ownerEmail` invitation grants owner |
+
+**Live smoke test:**
+
+- **Setup:** API, app (production build) and portal against a seeded Postgres 16, with a Redis REST stand-in and a mock HaloPSA.
+- **Driver:** Playwright.
+- **Roles tested:** client owner, `msp_staff` tech (`msp_tech` in two clients), and platform admin.
+
+| Check | Result |
+|---|---|
+| Org setup and onboarding wizard (original flow) | Works |
+| Owner crawl, Client A: 80 pages | 80 of 80 load. `/questionnaire` returns 404 by design (PostHog feature flag, same as original). |
+| Same crawl on the original repo (`0ccfcc2`), same database | Same result on 77 of 80 pages. 4 task pages differ only because the 80-page cap hit different tasks. The Overview page throws React hydration error #418 on the original; it is intermittent and was seen on the branch in dev mode too. |
+| Tenant switching: org switcher and master pane "Open" | Works, and the URL and active org change |
+| Master pane `/msp` | Tech sees only assigned clients. Admin sees all. Renders at 375px with no page-level horizontal scroll. |
+| Staff MFA | Admin and tech without 2FA get `MFA_REQUIRED` on the API and on better-auth admin routes. TOTP enrollment works. |
+| Tech set-active to a non-member org | 403 |
+| Halo mapping, create-org from a Halo client, webhook token, webhook auth and replay | Works against the mock Halo |
+| Admin pages (organizations, halopsa, integrations, org detail) | Load with posture and Halo columns |
+
+**Bugs found and fixed by the smoke test:**
+
+- The Halo client column read the old metadata keys after the binding fix (`7e688f6`).
+- Evidence forms returned 401 for every custom role, including `msp_tech`, because of a hardcoded role-name check (upstream code).
+- The settings nav showed tabs that return 403 for the member (upstream). Tabs are now permission-gated, and Roles requires `ac:read` to match the API (`681c25e`).
+
+**Setup notes for self-hosting (upstream requirements, not bugs):**
+
+- The API refuses to boot without S3 settings and a `MACED_API_KEY` in the `mc_live_` or `mc_dev_` format.
+- The original repo's app requires `RESEND_API_KEY`.
+- The app and portal need `bun run db:generate` before they start.
+
 ## 1. Why the current structure already fits one MSP
 
 This fork is self-hosted by Masri. The instance itself is the MSP boundary:
