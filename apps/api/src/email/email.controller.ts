@@ -7,6 +7,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { tasks } from '@trigger.dev/sdk';
+import { resolveFromAddress } from '@trycompai/email';
 import { HybridAuthGuard } from '../auth/hybrid-auth.guard';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/require-permission.decorator';
@@ -15,6 +16,7 @@ import { SendEmailDto } from './dto/send-email.dto';
 import { SendBatchEmailDto } from './dto/send-batch-email.dto';
 import type { sendEmailTask } from '../trigger/email/send-email';
 import type { sendBatchEmailTask } from '../trigger/email/send-batch-email';
+import { scheduledAtToDelay } from '../trigger/email/list-unsubscribe';
 
 @ApiExcludeController()
 @ApiTags('Internal - Email')
@@ -33,16 +35,20 @@ export class EmailController {
   })
   @ApiResponse({ status: 200, description: 'Email task triggered' })
   async sendEmail(@Body() dto: SendEmailDto) {
-    const handle = await tasks.trigger<typeof sendEmailTask>('send-email', {
-      to: dto.to,
-      subject: dto.subject,
-      html: dto.html,
-      from: dto.from,
-      channel: dto.system ? 'system' : 'default',
-      cc: dto.cc,
-      scheduledAt: dto.scheduledAt,
-      attachments: dto.attachments,
-    });
+    const handle = await tasks.trigger<typeof sendEmailTask>(
+      'send-email',
+      {
+        to: dto.to,
+        subject: dto.subject,
+        html: dto.html,
+        from: dto.from,
+        channel: dto.system ? 'system' : 'default',
+        cc: dto.cc,
+        scheduledAt: dto.scheduledAt,
+        attachments: dto.attachments,
+      },
+      { delay: scheduledAtToDelay(dto.scheduledAt) },
+    );
 
     return { success: true, taskId: handle.id };
   }
@@ -57,7 +63,8 @@ export class EmailController {
   @ApiResponse({ status: 200, description: 'Batch email task triggered' })
   async sendBatchEmail(@Body() dto: SendBatchEmailDto) {
     const fromAddress =
-      process.env.RESEND_FROM_SYSTEM ?? process.env.RESEND_FROM_DEFAULT;
+      resolveFromAddress({ channel: 'system' }) ??
+      resolveFromAddress({ channel: 'default' });
 
     const emails = dto.emails.map((email) => ({
       to: email.to,

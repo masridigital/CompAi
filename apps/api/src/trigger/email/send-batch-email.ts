@@ -1,9 +1,16 @@
 import { logger, queue, schemaTask } from '@trigger.dev/sdk';
 import { z } from 'zod';
-import { resend } from '../../email/resend';
-import { generateUnsubscribeToken } from '@trycompai/email';
+import {
+  deliverEmail,
+  getEmailTransport,
+  resolveFromAddress,
+  resolveReplyTo,
+  resolveTestRecipient,
+} from '@trycompai/email';
+import { buildListUnsubscribeHeaders } from './list-unsubscribe';
 
-const RESEND_BATCH_LIMIT = 100;
+/** Neither Cloudflare nor our Resend wrapper batch; we fan out single sends. */
+export const BATCH_SEND_CONCURRENCY = 10;
 
 const batchEmailQueue = queue({
   name: 'send-batch-email',
@@ -18,6 +25,24 @@ const batchEmailItemSchema = z.object({
   cc: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
+async function runWithConcurrency<T>(params: {
+  items: T[];
+  limit: number;
+  worker: (item: T, index: number) => Promise<void>;
+}): Promise<void> {
+  let next = 0;
+  const runners = Array.from(
+    { length: Math.min(params.limit, params.items.length) },
+    async () => {
+      while (next < params.items.length) {
+        const index = next++;
+        await params.worker(params.items[index], index);
+      }
+    },
+  );
+  await Promise.all(runners);
+}
+
 export const sendBatchEmailTask = schemaTask({
   id: 'send-batch-email',
   queue: batchEmailQueue,
@@ -28,81 +53,55 @@ export const sendBatchEmailTask = schemaTask({
     emails: z.array(batchEmailItemSchema).min(1),
   }),
   run: async (params) => {
-    if (!resend) {
-      logger.error('Resend not initialized - missing RESEND_API_KEY');
-      throw new Error('Resend not initialized - missing API key');
-    }
-
+    const transport = getEmailTransport();
     const fromDefault =
-      process.env.RESEND_FROM_SYSTEM ?? process.env.RESEND_FROM_DEFAULT;
+      resolveFromAddress({ channel: 'system' }) ??
+      resolveFromAddress({ channel: 'default' });
 
     if (!fromDefault) {
       throw new Error('Missing FROM address in environment variables');
     }
 
-    const toTest = process.env.RESEND_TO_TEST;
-    const apiBaseUrl =
-      process.env.NEXT_PUBLIC_API_URL || 'https://api.trycomp.ai';
+    const toTest = resolveTestRecipient();
+    const replyTo = resolveReplyTo({});
 
     let totalSent = 0;
     let totalFailed = 0;
 
-    for (let i = 0; i < params.emails.length; i += RESEND_BATCH_LIMIT) {
-      const chunk = params.emails.slice(i, i + RESEND_BATCH_LIMIT);
-
-      const payload = chunk.map((email) => {
-        const token = generateUnsubscribeToken(email.to);
-        const oneClickUrl = `${apiBaseUrl}/v1/email/unsubscribe?email=${encodeURIComponent(email.to)}&token=${encodeURIComponent(token)}`;
-
-        return {
-          from: email.from ?? fromDefault,
-          to: toTest ?? email.to,
-          cc: email.cc,
-          subject: email.subject,
-          html: email.html,
-          headers: {
-            'List-Unsubscribe': `<${oneClickUrl}>`,
-            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-          },
-        };
-      });
-
-      const { data, error } = await resend.batch.send(payload, {
-        batchValidation: 'permissive',
-      });
-
-      if (error) {
-        logger.error('Resend batch API error', {
-          error,
-          chunkIndex: i,
-          chunkSize: chunk.length,
-        });
-        totalFailed += chunk.length;
-        continue;
-      }
-
-      const sent = data?.data?.length ?? 0;
-      totalSent += sent;
-
-      if ('errors' in data && Array.isArray(data.errors)) {
-        for (const err of data.errors) {
-          logger.warn('Batch email failed for recipient', {
-            index: err.index,
-            message: err.message,
-            to: chunk[err.index]?.to,
+    await runWithConcurrency({
+      items: params.emails,
+      limit: BATCH_SEND_CONCURRENCY,
+      worker: async (email, index) => {
+        try {
+          await deliverEmail({
+            transport,
+            message: {
+              from: email.from ?? fromDefault,
+              to: toTest ?? email.to,
+              cc: email.cc,
+              replyTo,
+              subject: email.subject,
+              html: email.html,
+              headers: buildListUnsubscribeHeaders(email.to),
+            },
           });
+          totalSent += 1;
+        } catch (error) {
           totalFailed += 1;
+          logger.warn('Batch email failed for recipient', {
+            index,
+            to: email.to,
+            message: error instanceof Error ? error.message : String(error),
+          });
         }
-      }
+      },
+    });
 
-      logger.info('Batch chunk sent', {
-        chunkIndex: i,
-        chunkSize: chunk.length,
-        sent,
-      });
-    }
-
-    logger.info('Batch email task complete', { totalSent, totalFailed });
+    logger.info('Batch email task complete', {
+      provider: transport.provider,
+      totalSent,
+      totalFailed,
+    });
     return { totalSent, totalFailed };
   },
 });

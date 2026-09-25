@@ -23,7 +23,7 @@ For a functional deployment:
 
 - **Database**: `DATABASE_URL` in all three env files
 - **Auth**: `AUTH_SECRET`, `SECRET_KEY`, `BETTER_AUTH_URL`, `NEXT_PUBLIC_BETTER_AUTH_URL` (app); `BETTER_AUTH_SECRET` (portal)
-- **Email**: `RESEND_API_KEY` in app and portal
+- **Email**: configured on the API (`apps/api/.env`); see [Email](#email) below
 - **Workflows**: `TRIGGER_SECRET_KEY` in app
 - **Misc**: `REVALIDATION_SECRET`, `NEXT_PUBLIC_PORTAL_URL` in app
 
@@ -47,11 +47,39 @@ In the app and portal, set `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_PORTAL_URL` and `
 
 Keep `AUTH_COOKIE_DOMAIN` as narrow as possible. Every host under it receives the session cookie, so never use a parent domain that also serves third-party or unrelated hosts.
 
+### Email
+
+All email is sent by the API through a provider-agnostic transport (`packages/email/lib/transport`).
+Templates are rendered to HTML and plain text with `@react-email/render` before sending.
+
+| Variable | Purpose |
+|----------|---------|
+| `EMAIL_PROVIDER` | `cloudflare` or `resend`. Default: `cloudflare` if `CLOUDFLARE_EMAIL_API_TOKEN` is set, else `resend` if `RESEND_API_KEY` is set. |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account that owns the sending domain |
+| `CLOUDFLARE_EMAIL_API_TOKEN` | API token with only **Email Sending: Edit**. Store it in a secret manager. |
+| `EMAIL_FROM_SYSTEM` / `EMAIL_FROM_DEFAULT` | Sender addresses on the verified sending domain (fall back to `RESEND_FROM_SYSTEM` / `RESEND_FROM_DEFAULT`) |
+| `EMAIL_FROM_TRUST_PORTAL` | Optional Trust Portal sender (falls back to `RESEND_FROM_TRUST_PORTAL`, then the system sender) |
+| `EMAIL_REPLY_TO` | Reply-To for all emails, e.g. your support mailbox (falls back to `RESEND_REPLY_TO_MARKETING` for marketing only) |
+| `EMAIL_TO_TEST` | Optional. Redirects every email to one address (falls back to `RESEND_TO_TEST`) |
+| `EMAIL_ALLOW_MARKETING` | Marketing emails are refused on Cloudflare unless `true`. Sender: `EMAIL_FROM_MARKETING` / `RESEND_FROM_MARKETING` |
+| `RESEND_API_KEY` | Only when using the Resend provider |
+
+**Cloudflare setup:** in the Cloudflare dashboard, enable Email Sending and verify your sending domain or subdomain (Cloudflare adds SPF, DKIM, and DMARC records). Then create an API token with only the Email Sending: Edit permission.
+
+**Cloudflare limits enforced by the transport:**
+
+- Up to 50 recipients (to + cc + bcc) per message. Larger sends are split into multiple messages.
+- Messages over 4.5 MiB (including base64-encoded attachments) are rejected before sending. Link to the file in the app instead.
+- 429 and 5xx responses are retried up to 3 attempts with backoff, honoring `Retry-After`.
+- No native scheduling or batch endpoint: scheduled emails use a Trigger.dev `delay`, and batch sends fan out single sends (10 at a time).
+
+`List-Unsubscribe` / `List-Unsubscribe-Post` headers are still added to notification emails, so one-click unsubscribe keeps working.
+
 ### Prerequisites
 
 - Docker Desktop or Docker Engine
 - External PostgreSQL 14+ with SSL
-- [Resend](https://resend.com) account for email
+- Cloudflare Email Service (or a [Resend](https://resend.com) account) for email
 - [Trigger.dev](https://cloud.trigger.dev) account for workflows
 
 ### Build & Run
