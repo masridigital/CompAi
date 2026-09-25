@@ -1,6 +1,6 @@
 # MSP/MSSP Readiness and HaloPSA Integration Plan
 
-**Date:** 2026-09-24 · **Owner:** Masri · **Branch:** `claude/great-bardeen-33qwpl` · **Revision:** 3
+**Date:** 2026-09-24 · **Owner:** Masri · **Branch:** `claude/great-bardeen-33qwpl` · **Revision:** 4 (implemented)
 
 **Goal:** Make this self-hosted fork work for an MSP/MSSP that runs many client organizations. HaloPSA (hosted by Halo on Microsoft Azure, custom domain `portal.masri.tech`) is the system of record for clients and tickets. CompAI runs at `compliance.masri.tech`. All email goes through Cloudflare Email Service.
 
@@ -12,6 +12,46 @@
 - White-label, partner consoles, and cross-instance tenancy are out of scope.
 
 ---
+
+## 0. Implementation status (2026-09-25)
+
+All sections are built on `claude/great-bardeen-33qwpl`. Nothing ran against a live Halo tenant, Cloudflare account, or production database.
+
+| Plan item | Status |
+|---|---|
+| 2.1 `msp_staff` role, `msp_tech` org role, participation exclusion | Done. A user can grant a role only if they already hold all its permissions. Demoting msp_staff to user deactivates their msp_tech memberships. |
+| 2.2 Bulk staff assignment (endpoints, script, admin UI) | Done |
+| 2.3 Client posture snapshot and admin columns, Halo client column | Done. Sorting is per page (25 orgs). |
+| 2.4 Create org from Halo client | Done (API-side provisioning service) |
+| 2.5 S1 signed org claim | Done. Enforced only when `SERVICE_TOKEN_REQUIRE_ORG_SIGNATURE=true`. |
+| 2.5 S2 `isolated-vm` sandbox for DSL code steps | Done |
+| 2.5 S3 key in Azure Key Vault | Deploy runbook (`deploy/masri/README.md`) |
+| 2.5 S4 Member unique constraint and Session FK | Done. Migration tested on Postgres 16. |
+| 2.5 S6 2FA (TOTP), enforced for admin and msp_staff | Done. Includes a sign-in challenge for magic link, OTP and OAuth, and the MCP path. |
+| 3.2 Cookie domain and trusted origins from env | Done |
+| 3.3 Cloudflare Tunnel, WAF, R2, deploy kit | Done (`deploy/masri/`) |
+| 3.4 Cloudflare Email Service transport | Done |
+| 5.2 Halo alerting (checks, findings, devices, digest), outbox, webhook, reconcile | Done |
+| 5.3 Posture push to Halo client custom fields | Done |
+| 5.4 Client mapping admin page | Done |
+| 5.5 Halo evidence checks | Done. Change management has no task template yet. |
+| 5.1 Halo contacts to People | Done. Off unless an org selects `halopsa`. |
+| Monthly posture PDF to Halo | Done |
+
+**Verification on the merged branch:**
+
+- All migrations apply to a clean Postgres 16, and `prisma migrate diff` against the schema is empty.
+- API Jest: 26 failing suites, down from 27 on baseline `main` (`0ccfcc2`), and 74 failing tests, down from 75. No new failures.
+- App Vitest: 19 failing tests, down from 24 on baseline. No new failures.
+- `packages/integration-platform`: 545 of 545 pass. `packages/email`: 42 of 42. `packages/utils`: 22 of 22.
+- `tsc`: no new errors in api, app, portal, or the changed packages.
+
+**Must be confirmed against `https://portal.masri.tech/apidoc`:** ticket search parameters, closed-date field, `/Users` parameters, `/Attachment` fields, the custom-field update format, and the Halo client URL. The halopsa `README.md` lists each one.
+
+**Open decisions:**
+
+- API keys are not held to the role-grant check. A key limited to member permissions can still invite an admin.
+- The 2FA sign-in challenge for magic link, OTP and OAuth depends on better-auth internals. Test it end to end, and after every better-auth upgrade.
 
 ## 1. Why the current structure already fits one MSP
 
