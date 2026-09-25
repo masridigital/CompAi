@@ -299,10 +299,18 @@ The ticket type IDs for incident, access review, joiner/leaver, and change are s
 
 ### 6.1 Credentials: one Halo secret for all clients
 
-- Store the Halo client ID and secret once in `IntegrationPlatformCredential` (`providerSlug = 'halopsa'`). Manage it through the existing `admin/integrations/credentials` endpoints (`PlatformAdminGuard`).
-- Each client org's `halopsa` `IntegrationConnection` holds only `variables` (`haloClientId`, `haloSiteId`, alert settings). It stores no secret.
-- Edit `oauth-credentials.service.ts` (or a new `halopsa-credentials.ts` beside it) so that `halopsa` uses the client-credentials grant against the platform credential.
-- Rotate the secret once in one place.
+**Decision (revised):** Keep the Halo API app credential in environment variables, loaded from Azure Key Vault. Reason: `IntegrationPlatformCredential` is only read for OAuth2 manifests, and Halo uses the client-credentials grant. Env keeps the platform code unchanged.
+
+| Env var | Value |
+|---|---|
+| `HALOPSA_BASE_URL` | `https://portal.masri.tech` |
+| `HALOPSA_AUTH_URL` | Authorisation server from Halo API Details (default `${HALOPSA_BASE_URL}/auth`) |
+| `HALOPSA_TENANT` | Tenant name from Halo API Details (sent as `?tenant=`) |
+| `HALOPSA_CLIENT_ID`, `HALOPSA_CLIENT_SECRET` | Halo API application |
+| `HALOPSA_SCOPE` | `read:customers read:tickets edit:tickets read:assets read:teams read:agents` (add `edit:customers` for 5.3) |
+
+- Each client org's `halopsa` connection uses `custom` auth with two fields: `haloClientId` (required) and `haloSiteId` (optional). It stores no secret.
+- Rotate the Halo secret once, in Key Vault.
 
 ### 6.2 Code layout (additive)
 
