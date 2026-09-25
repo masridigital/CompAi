@@ -88,6 +88,8 @@ model IntegrationConnection {
   findingExceptions  FindingException[]
   findingResolutions FindingResolution[]
   findingRegressions FindingRegression[]
+  // MSP: halopsa
+  haloTicketLinks    HaloTicketLink[]
 
   @@index([organizationId])
   @@index([providerId])

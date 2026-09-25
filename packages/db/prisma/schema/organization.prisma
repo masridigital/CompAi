@@ -128,5 +128,9 @@ model Organization {
   offboardingChecklistCompletions  OffboardingChecklistCompletion[]
   offboardingAccessRevocations     OffboardingAccessRevocation[]
 
+  // MSP: halopsa
+  haloTicketLinks  HaloTicketLink[]
+  haloOutboxEvents HaloOutboxEvent[]
+
   @@index([slug])
 }
