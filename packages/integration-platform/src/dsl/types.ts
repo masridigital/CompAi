@@ -381,6 +381,7 @@ export const DynamicIntegrationDefinitionSchema = z.object({
     'Infrastructure',
     'Security',
     'Productivity',
+    'ITSM',
   ]),
   logoUrl: z.string().url(),
   docsUrl: z.string().url().optional(),
