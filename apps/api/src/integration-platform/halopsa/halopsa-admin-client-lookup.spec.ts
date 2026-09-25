@@ -22,20 +22,24 @@ describe('halopsa admin client lookup', () => {
     expect(haloClientUrl(42, {})).toBeNull();
   });
 
-  it('reads the cached mapping from metadata', () => {
-    expect(haloClientRefFromMetadata({ haloClientId: 42, haloClientName: 'Acme' })).toEqual({
+  it('reads the admin-written binding from metadata', () => {
+    expect(
+      haloClientRefFromMetadata({ halopsaBinding: { haloClientId: 42, haloClientName: 'Acme' } }),
+    ).toEqual({
       id: 42,
       name: 'Acme',
       url: 'https://portal.masri.tech/customers?clientid=42',
     });
-    expect(haloClientRefFromMetadata({ haloClientId: 'x' })).toBeNull();
+    expect(haloClientRefFromMetadata({ halopsaBinding: { haloClientId: 'x' } })).toBeNull();
+    // Legacy top-level keys are not trusted (only the admin binding is).
+    expect(haloClientRefFromMetadata({ haloClientId: 42 })).toBeNull();
     expect(haloClientRefFromMetadata(null)).toBeNull();
   });
 
   it('loads all orgs in one query and keeps the first connection per org', async () => {
     mockDb.integrationConnection.findMany.mockResolvedValue([
-      { organizationId: 'org_a', metadata: { haloClientId: 1 } },
-      { organizationId: 'org_a', metadata: { haloClientId: 2 } },
+      { organizationId: 'org_a', metadata: { halopsaBinding: { haloClientId: 1 } } },
+      { organizationId: 'org_a', metadata: { halopsaBinding: { haloClientId: 2 } } },
       { organizationId: 'org_b', metadata: {} },
     ]);
     const result = await loadHaloClientsForOrganizations(['org_a', 'org_b']);

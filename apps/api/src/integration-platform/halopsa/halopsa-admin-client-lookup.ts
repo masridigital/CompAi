@@ -1,5 +1,5 @@
 import { db } from '@db';
-import { asRecord } from './halopsa-connection';
+import { resolveHaloBinding } from '@trycompai/integration-platform';
 import { HALOPSA_PROVIDER_SLUG } from './halopsa.constants';
 
 export interface HaloClientRef {
@@ -19,18 +19,18 @@ export function haloClientUrl(id: number, env: NodeJS.ProcessEnv = process.env):
   return base ? `${base}/customers?clientid=${id}` : null;
 }
 
+/** Reads only the admin-written binding (metadata.halopsaBinding). */
 export function haloClientRefFromMetadata(metadata: unknown): HaloClientRef | null {
-  const meta = asRecord(metadata);
-  const id = Number(meta.haloClientId);
-  if (!Number.isInteger(id) || id <= 0) return null;
-  const name = typeof meta.haloClientName === 'string' && meta.haloClientName ? meta.haloClientName : null;
-  return { id, name, url: haloClientUrl(id) };
+  const binding = resolveHaloBinding(metadata);
+  if (!binding.success) return null;
+  const { haloClientId, haloClientName } = binding.data;
+  return { id: haloClientId, name: haloClientName || null, url: haloClientUrl(haloClientId) };
 }
 
 /**
  * Halo client per org for an admin list page, in ONE query and without
- * decrypting credentials: reads the haloClientId / haloClientName cached in
- * connection metadata by the admin bind flow.
+ * decrypting credentials: reads the binding the admin bind flow writes to
+ * connection metadata (halopsaBinding).
  */
 export async function loadHaloClientsForOrganizations(
   organizationIds: string[],

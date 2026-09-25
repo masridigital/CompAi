@@ -92,7 +92,7 @@ describe('MspOverviewService', () => {
     mockConnectionFindMany.mockResolvedValue([
       {
         organizationId: 'org_a',
-        metadata: { haloClientId: 12, haloClientName: 'Alpha Ltd' },
+        metadata: { halopsaBinding: { haloClientId: 12, haloClientName: 'Alpha Ltd' } },
       },
     ]);
   });
