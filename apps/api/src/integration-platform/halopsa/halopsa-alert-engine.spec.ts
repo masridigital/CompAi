@@ -138,7 +138,7 @@ describe('alert engine races', () => {
           ...mockDb,
           haloTicketLink: {
             ...mockDb.haloTicketLink,
-            findUnique: jest.fn(async () => null),
+            findUnique: jest.fn(async (_args: unknown): Promise<FakeLink | null> => null),
             create: jest.fn(async ({ data }) => {
               links.set('htl_winner', { id: 'htl_winner', ...data, organizationId: 'org_1' } as FakeLink);
               events.push({ linkId: 'htl_winner', kind: 'create_ticket', payload: {}, status: 'pending' });

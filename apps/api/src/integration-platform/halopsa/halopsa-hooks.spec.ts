@@ -56,6 +56,7 @@ describe('HaloPSA hooks', () => {
       haloOnCheckResults([
         {
           organizationId: 'org_1',
+          connectionId: 'icn_1',
           checkId: 'c',
           checkName: 'C',
           passed: false,
