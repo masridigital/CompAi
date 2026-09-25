@@ -155,7 +155,9 @@ export {
   DEFAULT_HALOPSA_SCOPE,
   DEFAULT_PRIORITY_MAP,
   HALO_ALERT_TRIGGERS,
+  HALO_MAX_ATTACHMENT_BYTES,
   HaloApiError,
+  HaloAttachmentTooLargeError,
   HaloAuthError,
   HaloConfigError,
   createHaloClient,
@@ -174,6 +176,7 @@ export {
 } from './manifests/halopsa';
 export type {
   AddActionInput,
+  AttachToTicketInput,
   CreateTicketInput,
   HaloAction,
   HaloAgent,

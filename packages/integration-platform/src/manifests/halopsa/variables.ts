@@ -13,6 +13,7 @@ export const HALO_ALERT_TRIGGERS = [
   'finding_created',
   'device_noncompliant',
   'weekly_digest',
+  'monthly_report',
 ] as const;
 export type HaloAlertTrigger = (typeof HALO_ALERT_TRIGGERS)[number];
 
@@ -112,6 +113,7 @@ export const alertVariables: CheckVariable[] = [
       { value: 'finding_created', label: 'New pentest and audit findings' },
       { value: 'device_noncompliant', label: 'Noncompliant devices' },
       { value: 'weekly_digest', label: 'Weekly due-items digest' },
+      { value: 'monthly_report', label: 'Monthly posture report (PDF)' },
     ],
   },
   idVariable({
@@ -154,6 +156,15 @@ export const alertVariables: CheckVariable[] = [
     label: 'Resolved status ID',
     helpText: 'Halo status set when the underlying issue is fixed in CompAI.',
   }),
+  {
+    id: 'alert_push_posture',
+    label: 'Push compliance posture to Halo client fields',
+    type: 'boolean',
+    required: false,
+    default: true,
+    helpText:
+      'Nightly update of the CFCompAI* client custom fields (needs the edit:customers scope).',
+  },
   {
     id: 'alert_min_severity',
     label: 'Minimum severity',

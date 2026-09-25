@@ -33,6 +33,7 @@ token refresh, Halo paging via `pageinate=true&page_size=100&page_no=N` and
 - `POST /Tickets` `[{ id, status_id }]` to change status
 - `POST /Actions` `[{ ticket_id, note, outcome, hiddenfromuser, sendemail: false }]`
 - `POST /Client` `[{ id, customfields: [{ name, value }] }]`
+- `POST /Attachment` `[{ ticket_id, filename, data_base64 }]`
 
 ## Names to confirm on /apidoc
 
@@ -49,6 +50,8 @@ token refresh, Halo paging via `pageinate=true&page_size=100&page_no=N` and
 - Lookup endpoints: `/TicketType`, `/Status`, `/Team`, `/Agent`, `/Priority`
   (priorities may be keyed by `priorityid`).
 - Custom field write shape on `POST /Client`.
+- Attachment upload: `POST /Attachment` `[{ ticket_id, filename, data_base64 }]`
+  (`attachToTicket`, 10 MB guard). Field names are unconfirmed.
 
 ## Checks
 
