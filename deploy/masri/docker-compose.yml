@@ -1,0 +1,99 @@
+# Masri self-hosted stack: compliance.masri.tech
+# Runs on one Azure VM. Postgres is Azure Database for PostgreSQL (external).
+# No port is published to the internet: cloudflared is the only ingress.
+#
+#   docker compose -f deploy/masri/docker-compose.yml --env-file deploy/masri/.env build
+#   docker compose -f deploy/masri/docker-compose.yml --env-file deploy/masri/.env run --rm migrator
+#   docker compose -f deploy/masri/docker-compose.yml --env-file deploy/masri/.env up -d
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+    compress: 'true'
+
+services:
+  migrator:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: migrator
+    env_file: [env/db.env]
+    logging: *default-logging
+    profiles: [ops]
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile.multistage
+    env_file: [env/api.env]
+    restart: unless-stopped
+    depends_on: [srh]
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://localhost:3333/v1/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging: *default-logging
+
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: app
+      args:
+        NEXT_PUBLIC_BETTER_AUTH_URL: https://api.compliance.masri.tech
+    env_file: [env/app.env]
+    restart: unless-stopped
+    command: sh -lc "node apps/app/server.js"
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:3000/api/health || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *default-logging
+
+  portal:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: portal
+      args:
+        NEXT_PUBLIC_BETTER_AUTH_URL: https://api.compliance.masri.tech
+    env_file: [env/portal.env]
+    restart: unless-stopped
+    logging: *default-logging
+
+  # Redis plus an Upstash-compatible REST proxy. The code uses the Upstash
+  # REST client (UPSTASH_REDIS_REST_URL / _TOKEN), so no code change is needed.
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD}']
+    volumes: [redis-data:/data]
+    restart: unless-stopped
+    logging: *default-logging
+
+  srh:
+    image: hiett/serverless-redis-http:latest
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: ${UPSTASH_REDIS_REST_TOKEN}
+      SRH_CONNECTION_STRING: redis://:${REDIS_PASSWORD}@redis:6379
+    depends_on: [redis]
+    restart: unless-stopped
+    logging: *default-logging
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    volumes:
+      - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+    depends_on: [api, app, portal]
+    restart: unless-stopped
+    logging: *default-logging
+
+volumes:
+  redis-data:

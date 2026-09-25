@@ -1,0 +1,12 @@
+# Cloudflare Tunnel ingress for compliance.masri.tech.
+# The tunnel token (CLOUDFLARE_TUNNEL_TOKEN) identifies the tunnel.
+# Create the three public hostnames on the tunnel in Zero Trust > Networks >
+# Tunnels, or with `cloudflared tunnel route dns`.
+ingress:
+  - hostname: compliance.masri.tech
+    service: http://app:3000
+  - hostname: api.compliance.masri.tech
+    service: http://api:3333
+  - hostname: employee.compliance.masri.tech
+    service: http://portal:3000
+  - service: http_status:404
