@@ -24,6 +24,10 @@ import { FindingNotifierService } from './finding-notifier.service';
 import { type EvidenceFormType } from '@/evidence-forms/evidence-forms.definitions';
 import { TimelinesService } from '../timelines/timelines.service';
 import { checkAutoCompletePhases } from '../frameworks/frameworks-timeline.helper';
+import {
+  haloOnFindingCreated,
+  haloOnFindingStatusChanged,
+} from '../integration-platform/halopsa/halopsa-hooks';
 
 // Target keys on Finding. Exactly one of these (or `area`) must be set per finding.
 const TARGET_KEYS = [
@@ -341,6 +345,9 @@ export class FindingsService {
       actorName,
     });
 
+    // HaloPSA ticket (fire-and-forget; the hook swallows its own errors).
+    void haloOnFindingCreated({ organizationId, finding });
+
     // A new open finding lowers the AUTO_FINDINGS completion ratio, which
     // can regress a previously COMPLETED phase back to IN_PROGRESS.
     void checkAutoCompletePhases({
@@ -446,6 +453,13 @@ export class FindingsService {
         finding: updatedFinding,
         actorUserId: userId,
         actorName,
+        newStatus: updateDto.status,
+      });
+
+      void haloOnFindingStatusChanged({
+        organizationId,
+        finding: updatedFinding,
+        previousStatus,
         newStatus: updateDto.status,
       });
 

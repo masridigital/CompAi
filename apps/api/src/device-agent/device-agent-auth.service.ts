@@ -16,6 +16,7 @@ import {
 } from './device-registration.helpers';
 import { RegisterDeviceDto } from './dto/register-device.dto';
 import { CheckInDto } from './dto/check-in.dto';
+import { haloOnDeviceCompliance } from '../integration-platform/halopsa/halopsa-hooks';
 
 interface StoredAuthCode {
   userId: string;
@@ -233,6 +234,15 @@ export class DeviceAgentAuthService {
         ...(dto.agentVersion ? { agentVersion: dto.agentVersion } : {}),
         ...(sessionIdToLink !== undefined ? { agentSessionId: sessionIdToLink } : {}),
       },
+    });
+
+    // HaloPSA device alert (fire-and-forget; the hook swallows its own errors).
+    void haloOnDeviceCompliance({
+      organizationId: device.organizationId,
+      deviceId: device.id,
+      deviceName: device.name,
+      compliant: isCompliant,
+      failingChecks: Object.keys(checkFields).filter((field) => !checkFields[field]),
     });
 
     return {

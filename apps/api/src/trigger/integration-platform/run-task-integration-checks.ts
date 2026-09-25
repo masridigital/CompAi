@@ -19,6 +19,10 @@ import {
   decideRunStatus,
   type FailingFinding,
 } from '../../integration-platform/utils/task-check-evaluation';
+import {
+  haloOnTaskCheckRun,
+  type HaloCheckRunSummary,
+} from '../../integration-platform/halopsa/halopsa-check-hook';
 
 /**
  * Result of one task's integration-check run. The per-org runner
@@ -230,6 +234,8 @@ export const runTaskIntegrationChecks = task({
     // that produced no findings — so a held/errored check keeps the task pending
     // (not 'done') until the self-heal agent resolves it.
     let heldRunCount = 0;
+    // Per-check summaries for the HaloPSA alert hook (held/errored runs excluded).
+    const haloChecks: HaloCheckRunSummary[] = [];
 
     // Run only the checks that apply to this task
     try {
@@ -419,6 +425,14 @@ export const runTaskIntegrationChecks = task({
           await db.integrationCheckResult.createMany({ data: resultsToStore });
         }
 
+        if (runStatus !== 'inconclusive' && checkResult.status !== 'error') {
+          haloChecks.push({
+            checkId: checkResult.checkId,
+            checkName: checkResult.checkName,
+            findings: checkResult.result.findings,
+          });
+        }
+
         logger.info(`Completed check ${checkId} for task ${taskId}`, {
           passed: checkResult.result.passingResults.length,
           findings: checkResult.result.findings.length,
@@ -536,6 +550,15 @@ export const runTaskIntegrationChecks = task({
           );
         }
       }
+
+      // HaloPSA alerting (never throws; Halo problems must not fail the run).
+      await haloOnTaskCheckRun({
+        organizationId,
+        taskId,
+        connectionId,
+        checks: haloChecks,
+        exceptions,
+      });
 
       return {
         success: true,
