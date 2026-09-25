@@ -245,7 +245,8 @@ export type IntegrationCategory =
   | 'Monitoring'
   | 'Infrastructure'
   | 'Security'
-  | 'Productivity';
+  | 'Productivity'
+  | 'ITSM';
 
 // ============================================================================
 // Integration Finding (result from sync/checks)
