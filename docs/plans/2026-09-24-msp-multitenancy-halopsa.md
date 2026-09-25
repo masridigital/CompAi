@@ -37,6 +37,7 @@ All sections are built on `claude/great-bardeen-33qwpl`. Nothing ran against a l
 | 5.5 Halo evidence checks | Done. Change management has no task template yet. |
 | 5.1 Halo contacts to People | Done. Off unless an org selects `halopsa`. |
 | Monthly posture PDF to Halo | Done |
+| 2.6 Master pane (`/msp`, `/v1/msp/*`) | Done. "All clients" sits in the org switcher footer (the design-system selector has no top slot). |
 
 **Verification on the merged branch:**
 
@@ -116,6 +117,36 @@ Keep the existing `/setup` flow. Add one admin action: "Create org from Halo cli
 | S3 | One `ENCRYPTION_KEY` protects every client's credentials | `apps/api/src/integration-platform/services/credential-vault.service.ts:93` | Store `ENCRYPTION_KEY` in Azure Key Vault. Envelope encryption is optional later. |
 | S4 | `Member` has no `@@unique([userId, organizationId])` | `packages/db/prisma/schema/auth.prisma` | Deduplicate, then add the constraint. Bulk staff assignment depends on it. |
 | S6 | No MFA plugin | `apps/api/src/auth/auth.server.ts` | Add the better-auth `twoFactor` plugin. Enforce it for `admin` and `msp_staff`. |
+
+### 2.6 Master pane
+
+One page where MSP staff see every client tenant at once and switch into any of them with one click. It is additive: the existing app and admin pages are unchanged.
+
+**What it shows** (`/msp` in the app, outside `/[orgId]`):
+
+- KPI totals: clients, average score, failing checks, overdue tasks, open findings, evidence expiring in 30 days, open Halo tickets.
+- Tabs: Clients (sortable, searchable table), Overdue tasks (with a "due in 30 days" view), Failing checks, Open findings, Halo tickets.
+- Every row has an Open action. It calls `authClient.organization.setActive`, then opens the deep link: `/{orgId}`, `/{orgId}/tasks/{taskId}`, `/{orgId}/overview/findings`, or `/{orgId}/integrations`.
+- Entry points: "All clients" in the organization switcher (admin and msp_staff only) and the first item in the admin sidebar.
+
+**Scoping rules:**
+
+- Only users whose global `User.role` is `admin` or `msp_staff` can use it. Other users get a 403 from the API and a redirect in the app. API keys, service tokens, and MCP OAuth tokens are refused.
+- Staff MFA applies. `/v1/msp/*` is not on the MFA allowlist, so `HybridAuthGuard` returns `MFA_REQUIRED`, and `MspStaffGuard` checks it again.
+- `admin` sees every org with `hasAccess` or `onboardingCompleted`.
+- `msp_staff` sees only orgs where they hold an active, non-deactivated `Member` row whose role grants `app:read`. Portal-only memberships are left out.
+- Each data type is included for an org only if the member role grants its read permission: `task:read` (overdue tasks), `finding:read`, `integration:read` (failing checks, Halo client, Halo tickets), `evidence:read`, `framework:read` (score), `policy:read`. Permissions come from `resolveRolePermissions`, the resolver `PermissionGuard` already uses for built-in and custom roles. Fields the viewer cannot read are `null`, and the totals count only visible values. Platform admins see every field.
+- Every query is bounded to the resolved org id set.
+
+**Endpoints** (`apps/api/src/msp-overview/`, excluded from the public OpenAPI spec, read-only):
+
+| Endpoint | Returns |
+|---|---|
+| `GET /v1/msp/overview` | `{ totals, clients[] }`. Uses the latest `ClientPostureSnapshot` per org (one `DISTINCT ON` query), the Halo client per org, and open Halo tickets per org (one grouped query). |
+| `GET /v1/msp/tasks?view=overdue\|due-soon&cursor&limit` | Cross-org task rows. Keyset cursor, `limit` at most 100. |
+| `GET /v1/msp/findings?status=open&severity&cursor&limit` | Cross-org findings. `status=open` means every status except closed. |
+| `GET /v1/msp/checks/failing` | The latest failing integration checks per org, from `CheckResultsService`. |
+| `GET /v1/msp/halo-tickets?state=open&cursor&limit` | `HaloTicketLink` rows with the org name and `${HALOPSA_BASE_URL}/ticket?id={id}`. The link format is not confirmed, so the ticket id is returned as well. |
 
 ---
 
