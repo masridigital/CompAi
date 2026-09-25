@@ -1,25 +1,7 @@
 import { serverApi } from '@/lib/api-server';
 import { PageHeader, PageLayout } from '@trycompai/design-system';
+import type { AdminOrgsResponse } from './components/admin-org-types';
 import { OrganizationsTable } from './components/OrganizationsTable';
-
-interface AdminOrg {
-  id: string;
-  name: string;
-  slug: string;
-  logo: string | null;
-  createdAt: string;
-  hasAccess: boolean;
-  onboardingCompleted: boolean;
-  memberCount: number;
-  owner: { id: string; name: string; email: string } | null;
-}
-
-interface AdminOrgsResponse {
-  data: AdminOrg[];
-  total: number;
-  page: number;
-  limit: number;
-}
 
 const PAGE_SIZE = 25;
 
@@ -42,9 +24,7 @@ export default async function AdminOrganizationsPage({
   });
   if (search) qs.set('search', search);
 
-  const res = await serverApi.get<AdminOrgsResponse>(
-    `/v1/admin/organizations?${qs}`,
-  );
+  const res = await serverApi.get<AdminOrgsResponse>(`/v1/admin/organizations?${qs}`);
 
   return (
     <PageLayout header={<PageHeader title="Organizations" />}>

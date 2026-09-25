@@ -13,6 +13,7 @@ import { AdminVendorsController } from './admin-vendors.controller';
 import { AdminContextController } from './admin-context.controller';
 import { AdminEvidenceController } from './admin-evidence.controller';
 import { AdminFrameworksController } from './admin-frameworks.controller';
+import { AdminPostureController } from './admin-posture.controller';
 import { AdminIntegrationsController } from '../integration-platform/controllers/admin-integrations.controller';
 import { PlatformAuditLogInterceptor } from '../integration-platform/interceptors/platform-audit-log.interceptor';
 
@@ -92,6 +93,7 @@ const ORG_ADMIN_CONTROLLERS = [
   { name: 'AdminContextController', controller: AdminContextController },
   { name: 'AdminEvidenceController', controller: AdminEvidenceController },
   { name: 'AdminFrameworksController', controller: AdminFrameworksController },
+  { name: 'AdminPostureController', controller: AdminPostureController },
 ];
 
 describe('Admin controllers security baseline', () => {
@@ -136,8 +138,8 @@ describe('Admin controllers security baseline', () => {
     });
   });
 
-  it('covers all 8 expected org-scoped admin controllers', () => {
-    expect(ORG_ADMIN_CONTROLLERS).toHaveLength(8);
+  it('covers all 9 expected org-scoped admin controllers', () => {
+    expect(ORG_ADMIN_CONTROLLERS).toHaveLength(9);
   });
 
   describe('AdminIntegrationsController', () => {
@@ -183,8 +185,8 @@ describe('Admin controllers security baseline', () => {
     });
   });
 
-  it('covers all 9 admin controllers (8 org-scoped + 1 platform-scoped)', () => {
-    expect(ORG_ADMIN_CONTROLLERS).toHaveLength(8);
+  it('covers all 10 admin controllers (9 org-scoped + 1 platform-scoped)', () => {
+    expect(ORG_ADMIN_CONTROLLERS).toHaveLength(9);
     expect(AdminIntegrationsController).toBeDefined();
   });
 

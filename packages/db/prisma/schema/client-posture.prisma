@@ -1,0 +1,24 @@
+/// Nightly/after-check-run read model of an organization's compliance posture.
+/// Powers the platform admin (MSP) client posture columns without N live
+/// queries per page load. Retained for 30 days.
+model ClientPostureSnapshot {
+  id                  String    @id @default(dbgenerated("generate_prefixed_cuid('cps'::text)"))
+  organizationId      String
+  capturedAt          DateTime  @default(now())
+  /// Array of { frameworkId: string, name: string, score: number (0-100) }
+  frameworkScores     Json      @default("[]")
+  overallScore        Int       @default(0)
+  controlsPassing     Int       @default(0)
+  controlsTotal       Int       @default(0)
+  failingChecks       Int       @default(0)
+  overdueTasks        Int       @default(0)
+  openFindings        Int       @default(0)
+  evidenceExpiring30d Int       @default(0)
+  policiesUnpublished Int       @default(0)
+  integrationErrors   Int       @default(0)
+  lastActivityAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, capturedAt])
+}

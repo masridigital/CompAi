@@ -31,6 +31,9 @@ jest.mock('@trigger.dev/sdk', () => ({
 jest.mock('./run-task-integration-checks', () => ({
   runTaskIntegrationChecks: { batchTriggerAndWait: jest.fn() },
 }));
+jest.mock('../client-posture/compute-client-posture', () => ({
+  triggerDebouncedClientPosture: jest.fn(),
+}));
 
 import {
   collectFailedTasks,
