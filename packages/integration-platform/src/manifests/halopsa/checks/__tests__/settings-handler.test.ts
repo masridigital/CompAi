@@ -21,7 +21,17 @@ describe('parseHaloAlertSettings', () => {
       priorityMap: { critical: 1, high: 2, medium: 3, low: 4 },
       resolvedStatusId: undefined,
       minSeverity: 'low',
+      pushPosture: true,
     });
+  });
+
+  it('reads alert_push_posture with a default of true', () => {
+    expect(parseHaloAlertSettings({ alert_push_posture: false }).pushPosture).toBe(false);
+    expect(parseHaloAlertSettings({ alert_push_posture: 'false' }).pushPosture).toBe(false);
+    expect(parseHaloAlertSettings({ alert_push_posture: true }).pushPosture).toBe(true);
+    expect(parseHaloAlertSettings({ alert_enabled_triggers: ['monthly_report'] }).enabledTriggers).toEqual([
+      'monthly_report',
+    ]);
   });
 
   it('reassembles the object from flat variables and drops unknown triggers', () => {

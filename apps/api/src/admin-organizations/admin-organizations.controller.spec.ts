@@ -1,3 +1,4 @@
+import { loadHaloClientsForOrganizations } from '../integration-platform/halopsa/halopsa-admin-client-lookup';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminOrganizationsController } from './admin-organizations.controller';
 import { AdminOrganizationsService } from './admin-organizations.service';
@@ -13,6 +14,10 @@ jest.mock('../auth/platform-admin.guard', () => ({
 
 jest.mock('../auth/auth.server', () => ({
   auth: { api: {} },
+}));
+
+jest.mock('../integration-platform/halopsa/halopsa-admin-client-lookup', () => ({
+  loadHaloClientsForOrganizations: jest.fn(),
 }));
 
 jest.mock('@db', () => ({
@@ -79,6 +84,27 @@ describe('AdminOrganizationsController', () => {
   });
 
   describe('list', () => {
+    beforeEach(() => {
+      (loadHaloClientsForOrganizations as jest.Mock).mockResolvedValue(new Map());
+    });
+
+    it('attaches the bound Halo client per org with a single lookup', async () => {
+      const haloClient = { id: 42, name: 'Acme', url: 'https://halo.test/customers?clientid=42' };
+      mockService.listOrganizations.mockResolvedValue({
+        data: [{ id: 'org_a' }, { id: 'org_b' }],
+        total: 2,
+        page: 1,
+        limit: 50,
+      });
+      (loadHaloClientsForOrganizations as jest.Mock).mockResolvedValue(new Map([['org_b', haloClient]]));
+
+      const result = await controller.list();
+
+      expect(loadHaloClientsForOrganizations).toHaveBeenCalledTimes(1);
+      expect(loadHaloClientsForOrganizations).toHaveBeenCalledWith(['org_a', 'org_b']);
+      expect(result.data.map((o) => o.haloClient)).toEqual([null, haloClient]);
+    });
+
     it('attaches the latest posture per org with a single lookup', async () => {
       const posture = { overallScore: 72, failingChecks: 3 };
       mockService.listOrganizations.mockResolvedValue({
@@ -101,8 +127,8 @@ describe('AdminOrganizationsController', () => {
         'org_b',
       ]);
       expect(result.data).toEqual([
-        { id: 'org_a', posture },
-        { id: 'org_b', posture: null },
+        { id: 'org_a', posture, haloClient: null },
+        { id: 'org_b', posture: null, haloClient: null },
       ]);
       expect(result.total).toBe(2);
     });

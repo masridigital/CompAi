@@ -160,6 +160,7 @@ export function OrganizationsTable({
               <TableRow>
                 <TableHead>Organization</TableHead>
                 <TableHead data-col="lg">Owner</TableHead>
+                <TableHead data-col="lg">Halo client</TableHead>
                 <TableHead>Score</TableHead>
                 <TableHead>Failing checks</TableHead>
                 <TableHead data-col="md">Overdue tasks</TableHead>

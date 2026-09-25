@@ -30,6 +30,7 @@ import { UpdateAdminOrganizationDto } from './dto/update-admin-organization.dto'
 import { PurgeOrganizationDto } from './dto/purge-organization.dto';
 import { ClientPostureQueryService } from '../client-posture/client-posture-query.service';
 import { attachPosture } from './admin-posture.helper';
+import { loadHaloClientsForOrganizations } from '../integration-platform/halopsa/halopsa-admin-client-lookup';
 
 @ApiExcludeController()
 @ApiTags('Admin - Organizations')
@@ -57,12 +58,18 @@ export class AdminOrganizationsController {
       limit: Math.min(100, Math.max(1, parseInt(limit || '50', 10) || 50)),
     });
     // MSP: posture — latest snapshot per org in one query (no N+1).
-    const postureByOrg = await this.postureQuery.getLatestForOrganizations(
-      result.data.map((org) => org.id),
-    );
+    const orgIds = result.data.map((org) => org.id);
+    // MSP: halopsa — bound Halo client per org, one query, no decryption.
+    const [postureByOrg, haloByOrg] = await Promise.all([
+      this.postureQuery.getLatestForOrganizations(orgIds),
+      loadHaloClientsForOrganizations(orgIds),
+    ]);
     return {
       ...result,
-      data: attachPosture({ organizations: result.data, postureByOrg }),
+      data: attachPosture({ organizations: result.data, postureByOrg }).map((org) => ({
+        ...org,
+        haloClient: haloByOrg.get(org.id) ?? null,
+      })),
     };
   }
 

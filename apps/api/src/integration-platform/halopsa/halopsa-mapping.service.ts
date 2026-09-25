@@ -36,6 +36,15 @@ export class HaloMappingService {
     return this.haloClient().getClient(haloClientId);
   }
 
+  private async lookupClientName(haloClientId: number): Promise<string | undefined> {
+    try {
+      return (await this.getHaloClient(haloClientId)).name;
+    } catch (error) {
+      this.logger.warn(`Could not fetch Halo client ${haloClientId} name: ${String(error)}`);
+      return undefined;
+    }
+  }
+
   async getConnection(connectionId: string): Promise<{ connectionId: string; organizationId: string }> {
     const connection = await db.integrationConnection.findFirst({
       where: { id: connectionId, provider: { slug: HALOPSA_PROVIDER_SLUG } },
@@ -116,10 +125,13 @@ export class HaloMappingService {
     haloClientId,
     organizationId,
     haloSiteId,
+    haloClientName,
   }: {
     haloClientId: number;
     organizationId: string;
     haloSiteId?: number;
+    /** Cached in metadata for admin lists; fetched from Halo when omitted. */
+    haloClientName?: string;
   }) {
     const org = await db.organization.findUnique({ where: { id: organizationId }, select: { id: true } });
     if (!org) throw new NotFoundException(`Organization ${organizationId} not found`);
@@ -141,7 +153,12 @@ export class HaloMappingService {
       isActive: halopsaManifest.isActive,
     });
 
-    const mappingMeta = { haloClientId, ...(haloSiteId ? { haloSiteId } : {}) };
+    const clientName = haloClientName ?? (await this.lookupClientName(haloClientId));
+    const mappingMeta = {
+      haloClientId,
+      ...(haloSiteId ? { haloSiteId } : {}),
+      ...(clientName ? { haloClientName: clientName } : {}),
+    };
     const existing = await this.connectionService.getConnectionByProviderSlug(
       HALOPSA_PROVIDER_SLUG,
       organizationId,
@@ -156,7 +173,7 @@ export class HaloMappingService {
       }));
 
     if (existing) {
-      const { haloSiteId: _old, ...rest } = asRecord(existing.metadata);
+      const { haloSiteId: _oldSite, haloClientName: _oldName, ...rest } = asRecord(existing.metadata);
       const metadata: Prisma.InputJsonObject = { ...(rest as Prisma.InputJsonObject), ...mappingMeta };
       await this.connectionService.updateConnectionMetadata(existing.id, metadata);
     }

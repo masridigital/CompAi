@@ -11,6 +11,11 @@ import {
   SetStatusPayloadSchema,
   type CreateTicketPayloadData,
 } from './halopsa-outbox-payloads';
+import {
+  executeAttachFile,
+  executePushCustomFields,
+  waitForPriorEvents,
+} from './halopsa-outbox-extra-handlers';
 
 type LinkWithConnection = HaloTicketLink & { connection: IntegrationConnection };
 
@@ -118,6 +123,7 @@ async function executeCreate(ctx: ExecuteContext): Promise<void> {
 async function executeSetStatus(ctx: ExecuteContext): Promise<void> {
   const ticketId = requireTicketId(ctx.link);
   const payload = SetStatusPayloadSchema.parse(ctx.event.payload);
+  if (payload.afterPrior) await waitForPriorEvents(ctx.event);
 
   // Remember the status before resolving so a regression can restore it.
   if (payload.previousStatusId === undefined) {
@@ -131,6 +137,12 @@ async function executeSetStatus(ctx: ExecuteContext): Promise<void> {
   }
   if (payload.note) await ctx.client.addAction({ ticketId, note: payload.note });
   await ctx.client.setStatus({ ticketId, statusId: payload.statusId });
+  if (payload.markLinkResolved) {
+    await db.haloTicketLink.updateMany({
+      where: { id: ctx.link.id, state: 'open' },
+      data: { state: 'resolved', resolvedAt: new Date() },
+    });
+  }
 }
 
 async function lastResolvedFromStatus(linkId: string): Promise<number | null> {
@@ -190,6 +202,10 @@ export async function executeOutboxEvent(ctx: ExecuteContext): Promise<void> {
       return executeSetStatus(ctx);
     case 'reopen':
       return executeReopen(ctx);
+    case 'push_custom_fields':
+      return executePushCustomFields(ctx);
+    case 'attach_file':
+      return executeAttachFile(ctx);
     default:
       throw new HaloPermanentError(`Unsupported outbox event kind: ${ctx.event.kind}`);
   }

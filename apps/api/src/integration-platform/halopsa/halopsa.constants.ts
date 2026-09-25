@@ -42,9 +42,10 @@ export type HaloOutboxKind =
   | 'add_note'
   | 'set_status'
   | 'reopen'
-  | 'push_custom_fields';
+  | 'push_custom_fields'
+  | 'attach_file';
 
-export type HaloEntityType = 'check' | 'finding' | 'device' | 'digest';
+export type HaloEntityType = 'check' | 'finding' | 'device' | 'digest' | 'posture' | 'report';
 
 export function isOutboxPaused(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.HALOPSA_OUTBOX_PAUSED === 'true';

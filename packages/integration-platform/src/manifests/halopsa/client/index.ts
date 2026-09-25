@@ -28,6 +28,7 @@ import {
   type SearchTicketsInput,
 } from './tickets';
 import { listClientUsers } from './users';
+import { attachToTicket, type AttachToTicketInput } from './attachments';
 
 export interface HaloClientOptions {
   /** Explicit config. Defaults to {@link loadHaloConfig} over `env`. */
@@ -51,6 +52,7 @@ export interface HaloClient {
   listSites: (clientId: number) => Promise<HaloSite[]>;
   /** Client contacts (end users), including inactive ones. */
   listClientUsers: (clientId: number) => Promise<HaloUser[]>;
+  attachToTicket: (input: AttachToTicketInput) => Promise<number>;
 
   createTicket: (input: CreateTicketInput) => Promise<number>;
   getTicket: (ticketId: number) => Promise<HaloTicket>;
@@ -128,6 +130,7 @@ export function createHaloClient(options: HaloClientOptions = {}): HaloClient {
     getClient: (clientId) => getClient({ http, clientId }),
     listSites: (clientId) => listSites({ http, clientId }),
     listClientUsers: (clientId) => listClientUsers({ http, clientId }),
+    attachToTicket: (input) => attachToTicket({ http, input }),
     createTicket: (input) => createTicket({ http, input }),
     getTicket: (ticketId) => getTicket({ http, ticketId }),
     searchTickets: (input) => searchTickets({ http, input }),
@@ -156,3 +159,10 @@ export * from './schemas';
 export { buildAddActionPayload, buildCreateTicketPayload, buildSetStatusPayload } from './tickets';
 export type { AddActionInput, CreateTicketInput, SearchTicketsInput } from './tickets';
 export { listClientUsers } from './users';
+export {
+  base64DecodedBytes,
+  buildAttachmentPayload,
+  HALO_MAX_ATTACHMENT_BYTES,
+  HaloAttachmentTooLargeError,
+} from './attachments';
+export type { AttachToTicketInput } from './attachments';

@@ -70,10 +70,19 @@ export interface HaloAlertSettings {
   priorityMap: Record<HaloAlertSeverity, number>;
   resolvedStatusId?: number;
   minSeverity: HaloAlertSeverity;
+  /** Push posture to client custom fields (plan 5.3). Default true. */
+  pushPosture: boolean;
 }
 
 const TriggerSchema = z.enum(HALO_ALERT_TRIGGERS);
 const SeveritySchema = z.enum(HALO_SEVERITIES);
+
+/** Missing / '' -> true; false, 'false', '0', 'no', 'off' -> false. */
+export function parseBooleanDefaultTrue(value: unknown): boolean {
+  if (value === undefined || value === null || value === '') return true;
+  if (typeof value === 'boolean') return value;
+  return !['false', '0', 'no', 'off'].includes(String(value).trim().toLowerCase());
+}
 
 /** Reassemble the alert settings object from the flat `alert_*` variables. */
 export function parseHaloAlertSettings(variables: CheckVariableValues): HaloAlertSettings {
@@ -106,6 +115,7 @@ export function parseHaloAlertSettings(variables: CheckVariableValues): HaloAler
     },
     resolvedStatusId: optionalPositiveInt.parse(variables.alert_resolved_status_id),
     minSeverity: minSeverity.success ? minSeverity.data : 'low',
+    pushPosture: parseBooleanDefaultTrue(variables.alert_push_posture),
   };
 }
 
