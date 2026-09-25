@@ -1,5 +1,7 @@
-# Use Node.js runtime for production
-FROM node:20-slim
+# Use Node.js runtime for production.
+# Node 22+ is required by isolated-vm (DSL code-step sandbox), which ships
+# prebuilt binaries for Node 22/24 on linux x64/arm64 (no build tools needed).
+FROM node:22-slim
 
 # Install required packages:
 # - wget for healthcheck, curl/bash for bun install, openssl for prisma
@@ -36,4 +38,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3333/v1/health || exit 1
 
 # Start the application
-CMD ["node", "src/main.js"]
+# --no-node-snapshot is required by isolated-vm on Node 20+
+CMD ["node", "--no-node-snapshot", "src/main.js"]

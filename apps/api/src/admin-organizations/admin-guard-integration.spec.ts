@@ -143,7 +143,7 @@ describe('PlatformAdminGuard — runtime rejection scenarios', () => {
       await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
       expect(mockFindUnique).toHaveBeenCalledWith({
         where: { id: 'usr_sneaky' },
-        select: { id: true, email: true, role: true },
+        select: { id: true, email: true, role: true, twoFactorEnabled: true },
       });
     });
 
@@ -166,6 +166,7 @@ describe('PlatformAdminGuard — runtime rejection scenarios', () => {
         id: 'usr_admin',
         email: 'admin@platform.com',
         role: 'admin',
+        twoFactorEnabled: true,
       });
 
       const request = {

@@ -1,4 +1,5 @@
 import type { runAllChecks } from '@trycompai/integration-platform';
+import { buildServiceTokenHeaders } from '@trycompai/utils/service-token';
 
 export type RunAllChecksResult = Awaited<ReturnType<typeof runAllChecks>>;
 
@@ -53,8 +54,11 @@ export async function runChecksOnServer(params: {
         signal: abortController.signal,
         headers: {
           'Content-Type': 'application/json',
-          'x-service-token': serviceToken,
-          'x-organization-id': organizationId,
+          ...buildServiceTokenHeaders({
+            serviceToken,
+            organizationId,
+            signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+          }),
         },
         body: JSON.stringify(checkId ? { checkId } : {}),
       },

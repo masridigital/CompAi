@@ -34,6 +34,7 @@
     "format": "prettier --write .",
     "lint": "prettier --check .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "verify": "bun run src/validators/manifest-validator.ts",
     "generate:tasks": "bun run scripts/generate-task-types.ts"
   },
@@ -47,13 +48,15 @@
     "@aws-sdk/client-s3-control": "^3.943.0",
     "@aws-sdk/client-securityhub": "^3.943.0",
     "@aws-sdk/client-sts": "^3.943.0",
+    "isolated-vm": "^6.2.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.3",
     "@types/react": "^19.1.6",
     "react": "^19.0.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.6"
   },
   "peerDependencies": {
     "react": "^19.0.0"

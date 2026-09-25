@@ -1,3 +1,5 @@
+import { buildServiceTokenHeaders } from '@trycompai/utils/service-token';
+
 export type IntegrationCredentialValues = Record<string, string | string[]>;
 
 export interface ValidCredentialsResult {
@@ -60,8 +62,11 @@ export async function requestValidCredentials(params: {
         signal: abortController.signal,
         headers: {
           'Content-Type': 'application/json',
-          'x-service-token': serviceToken,
-          'x-organization-id': params.organizationId,
+          ...buildServiceTokenHeaders({
+            serviceToken,
+            organizationId: params.organizationId,
+            signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+          }),
         },
         body: JSON.stringify({ forceRefresh: params.forceRefresh === true }),
       },

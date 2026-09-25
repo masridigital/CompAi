@@ -1,6 +1,14 @@
 'use client';
 
 import { env } from '@/env.mjs';
+import { isMfaRequiredBody, TWO_FACTOR_SETUP_PATH } from './two-factor';
+
+/** Staff without 2FA get 403 MFA_REQUIRED from the API: send them to setup. */
+function redirectToTwoFactorSetup(): void {
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname.startsWith(TWO_FACTOR_SETUP_PATH)) return;
+  window.location.assign(TWO_FACTOR_SETUP_PATH);
+}
 
 interface ApiCallOptions extends Omit<RequestInit, 'headers'> {
   organizationId?: string;
@@ -59,6 +67,10 @@ export class ApiClient {
             data = { message: text };
           }
         }
+      }
+
+      if (response.status === 403 && isMfaRequiredBody(data)) {
+        redirectToTwoFactorSetup();
       }
 
       return {

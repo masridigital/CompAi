@@ -1,7 +1,6 @@
 import {
   CanActivate,
   ExecutionContext,
-  ForbiddenException,
   HttpException,
   Injectable,
   Logger,
@@ -10,11 +9,12 @@ import {
 import { Reflector } from '@nestjs/core';
 import { db } from '@db';
 import { ApiKeyService } from './api-key.service';
-import { hasAppAccess } from './app-access';
 import { auth } from './auth.server';
+import { authenticateMcpOAuth } from './mcp-oauth-auth';
+import { assertStaffMfa, requestPath } from './mfa-policy';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { SKIP_ORG_CHECK_KEY } from './skip-org-check.decorator';
-import { resolveServiceByToken } from './service-token.config';
+import { authenticateServiceToken } from './service-token-auth';
 import { AuthenticatedRequest } from './types';
 
 @Injectable()
@@ -43,7 +43,7 @@ export class HybridAuthGuard implements CanActivate {
     // Try Service Token authentication (for internal services)
     const serviceToken = request.headers['x-service-token'] as string;
     if (serviceToken) {
-      return this.handleServiceTokenAuth(request, serviceToken);
+      return authenticateServiceToken({ request, token: serviceToken });
     }
 
     // Try session-based authentication (bearer token or cookies)
@@ -89,76 +89,6 @@ export class HybridAuthGuard implements CanActivate {
     return true;
   }
 
-  private async handleServiceTokenAuth(
-    request: AuthenticatedRequest,
-    token: string,
-  ): Promise<boolean> {
-    const service = resolveServiceByToken(token);
-    if (!service) {
-      throw new UnauthorizedException('Invalid service token');
-    }
-
-    const organizationId = request.headers['x-organization-id'] as string;
-    if (!organizationId) {
-      throw new UnauthorizedException(
-        'x-organization-id header is required for service token auth',
-      );
-    }
-
-    const org = await db.organization.findUnique({
-      where: { id: organizationId },
-      select: { id: true },
-    });
-    if (!org) {
-      throw new UnauthorizedException(
-        'Organization not found for the provided x-organization-id',
-      );
-    }
-
-    request.organizationId = organizationId;
-    request.authType = 'service';
-    request.isApiKey = false;
-    request.isServiceToken = true;
-    request.serviceName = service.definition.name;
-    request.isPlatformAdmin = false;
-    request.userRoles = null;
-
-    // Service tokens can pass x-user-id to act on behalf of a user
-    // Validate that the user exists and belongs to the organization
-    const actingUserId = request.headers['x-user-id'] as string;
-    if (actingUserId) {
-      const member = await db.member.findFirst({
-        // Only active memberships may act — an offboarded/deactivated user must
-        // not receive new audit / enteredById attribution. Mirrors the filters
-        // ActingUserResolver applies to its creator/owner lookups.
-        where: {
-          userId: actingUserId,
-          organizationId,
-          deactivated: false,
-          isActive: true,
-        },
-        select: { id: true, userId: true },
-      });
-      if (member) {
-        request.userId = actingUserId;
-        // Set the acting membership too, so Member-FK sinks (audit rows,
-        // enteredById, etc.) can attribute to the acting member and not just
-        // the user.
-        request.memberId = member.id;
-      } else {
-        this.logger.warn(
-          `Service token x-user-id "${actingUserId}" is not an active member of org ${organizationId}`,
-        );
-      }
-    }
-
-    this.logger.log(
-      `Service "${service.definition.name}" authenticated for org ${organizationId}`,
-    );
-
-    return true;
-  }
-
   private async handleSessionAuth(
     request: AuthenticatedRequest,
     skipOrgCheck = false,
@@ -189,7 +119,9 @@ export class HybridAuthGuard implements CanActivate {
       if (!session) {
         // Fallback: the hosted MCP server (Gram) sends an OAuth access token as a
         // Bearer token, which getSession does not resolve. Try the MCP OAuth path.
-        if (await this.tryMcpOAuthAuth(request, headers)) {
+        if (
+          await authenticateMcpOAuth({ request, headers, logger: this.logger })
+        ) {
           return true;
         }
         throw new UnauthorizedException('Invalid or expired session');
@@ -202,6 +134,17 @@ export class HybridAuthGuard implements CanActivate {
           'Invalid session: missing user information',
         );
       }
+
+      // S6: staff (admin / msp_staff) must have 2FA before using the API.
+      const staffUser = user as {
+        role?: string | null;
+        twoFactorEnabled?: boolean | null;
+      };
+      assertStaffMfa({
+        role: staffUser.role,
+        twoFactorEnabled: staffUser.twoFactorEnabled,
+        path: requestPath(request),
+      });
 
       const organizationId = sessionData.activeOrganizationId;
       if (!organizationId && !skipOrgCheck) {
@@ -272,121 +215,5 @@ export class HybridAuthGuard implements CanActivate {
       console.error('[HybridAuthGuard] Session verification failed:', error);
       throw new UnauthorizedException('Invalid or expired session');
     }
-  }
-
-  /**
-   * Resolve a hosted-MCP OAuth access token (issued by better-auth's mcp/oidc
-   * provider and forwarded by the Gram-hosted MCP server). Populates the request
-   * context and returns true on success; returns false when the bearer token is
-   * not a valid MCP OAuth token (so the caller throws the generic 401). Throws
-   * when no organization can be resolved.
-   *
-   * The token carries the user identity only. The organization is resolved
-   * explicitly from the user's active memberships (device-agent style), never a
-   * "most recent" guess. One org → used directly. Multiple orgs → the org the
-   * user chose for MCP (McpOrgBinding, set at connect time) is used if they're
-   * still a member; otherwise we ask them to choose rather than guess a tenant.
-   * Roles come from the resolved member so the existing PermissionGuard enforces
-   * RBAC unchanged.
-   *
-   * Two hard gates (both 403, never 401): the user must (1) be a member of an
-   * organization at all — strangers who merely completed sign-in are rejected —
-   * and (2) hold a role with app access (`app:read`) in the operative org, the
-   * same rule the web app uses. Portal-only roles (employee/contractor) cannot
-   * use the MCP.
-   */
-  private async tryMcpOAuthAuth(
-    request: AuthenticatedRequest,
-    headers: Headers,
-  ): Promise<boolean> {
-    const token = await auth.api.getMcpSession({ headers }).catch(() => null);
-    if (!token?.userId) {
-      return false;
-    }
-
-    const userId = token.userId;
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { id: true, email: true, role: true },
-    });
-    if (!user) {
-      return false;
-    }
-
-    request.userId = user.id;
-    request.userEmail = user.email;
-    request.userRoles = null;
-    request.organizationId = '';
-    request.authType = 'session';
-    request.isApiKey = false;
-    request.isServiceToken = false;
-    request.isMcpOAuth = true;
-    request.isPlatformAdmin = user.role === 'admin';
-
-    // An MCP token is only usable by a member of at least one organization.
-    // Enumerate active memberships up front (device-agent style) so a user with
-    // none — e.g. someone who completed Google sign-in but was never invited to
-    // any org, or who was removed from all of them — is blocked from EVERY MCP
-    // tool, including the org-agnostic (skipOrgCheck) ones.
-    const memberships = await db.member.findMany({
-      where: { userId, deactivated: false },
-      select: { id: true, role: true, department: true, organizationId: true },
-    });
-
-    if (memberships.length === 0) {
-      // Authenticated, but a member of nothing — not an auth failure, so 403
-      // (not 401) keeps the MCP client from looping on re-authentication.
-      throw new ForbiddenException(
-        'This account is not a member of any organization, so it cannot use the MCP.',
-      );
-    }
-
-    let member = memberships[0];
-    if (memberships.length > 1) {
-      // Multi-org: use the org the user chose for MCP (set at connect time),
-      // as long as they're still a member of it. No saved/valid choice → ask
-      // them to pick rather than guessing a tenant.
-      const binding = await db.mcpOrgBinding.findUnique({
-        where: { userId },
-        select: { organizationId: true },
-      });
-      const chosen = binding
-        ? memberships.find((m) => m.organizationId === binding.organizationId)
-        : undefined;
-      if (!chosen) {
-        // 403 (not 401): the token is valid — the user just needs to pick an
-        // org. A 401 would make the MCP client re-run sign-in in a loop.
-        throw new ForbiddenException(
-          'This account belongs to multiple organizations. Choose your ' +
-            'organization for AI/MCP access in Comp AI settings, then try again.',
-        );
-      }
-      member = chosen;
-    }
-
-    // App-access gate: MCP follows the same rule as the web app — only roles
-    // that grant app access (`app:read`) may use it. Portal-only roles
-    // (employee/contractor, or custom roles without app access) are rejected.
-    // Platform admins bypass this, consistent with PermissionGuard's own
-    // isPlatformAdmin bypass on the normal session path.
-    if (
-      !request.isPlatformAdmin &&
-      !(await hasAppAccess(member.organizationId, member.role))
-    ) {
-      throw new ForbiddenException(
-        "Your role doesn't have access to the app, so it can't use the MCP. " +
-          'Ask an organization admin for access.',
-      );
-    }
-
-    request.organizationId = member.organizationId;
-    request.memberId = member.id;
-    request.memberDepartment = member.department;
-    request.userRoles = member.role ? member.role.split(',') : null;
-
-    this.logger.log(
-      `MCP OAuth token authenticated for user ${user.id} (org ${member.organizationId})`,
-    );
-    return true;
   }
 }

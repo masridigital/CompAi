@@ -42,7 +42,7 @@ describe('MSP staff admin endpoints (HTTP)', () => {
 
   const asRole = (role: string | null) => {
     mockGetSession.mockResolvedValue({ user: { id: 'usr_caller' } });
-    mockUserFindUnique.mockResolvedValue({ id: 'usr_caller', email: 'c@x.com', role });
+    mockUserFindUnique.mockResolvedValue({ id: 'usr_caller', email: 'c@x.com', role, twoFactorEnabled: true });
   };
 
   beforeAll(async () => {

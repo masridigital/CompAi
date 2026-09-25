@@ -17,6 +17,7 @@ export const env = createEnv({
     APP_AUTH_URL: z.string().optional(),
     BACKEND_API_URL: z.string().optional(),
     SERVICE_TOKEN_PORTAL: z.string().optional(),
+    SERVICE_TOKEN_SIGNING_SECRET_PORTAL: z.string().optional(),
   },
 
   client: {
@@ -24,6 +25,7 @@ export const env = createEnv({
     NEXT_PUBLIC_POSTHOG_HOST: z.string().optional(),
     NEXT_PUBLIC_BETTER_AUTH_URL: z.string().optional(),
     NEXT_PUBLIC_API_URL: z.string().optional(),
+    NEXT_PUBLIC_APP_URL: z.string().optional(),
   },
 
   runtimeEnv: {
@@ -31,6 +33,7 @@ export const env = createEnv({
     NEXT_PUBLIC_POSTHOG_HOST: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     NEXT_PUBLIC_BETTER_AUTH_URL: process.env.NEXT_PUBLIC_BETTER_AUTH_URL,
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
@@ -45,6 +48,7 @@ export const env = createEnv({
     APP_AUTH_URL: process.env.APP_AUTH_URL,
     BACKEND_API_URL: process.env.BACKEND_API_URL,
     SERVICE_TOKEN_PORTAL: process.env.SERVICE_TOKEN_PORTAL,
+    SERVICE_TOKEN_SIGNING_SECRET_PORTAL: process.env.SERVICE_TOKEN_SIGNING_SECRET_PORTAL,
   },
 
   skipValidation: !!process.env.CI || !!process.env.SKIP_ENV_VALIDATION,

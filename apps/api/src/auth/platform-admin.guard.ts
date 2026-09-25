@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { db } from '@db';
 import { auth } from './auth.server';
+import { assertStaffMfa, requestPath } from './mfa-policy';
 
 interface PlatformAdminRequest {
   userId?: string;
@@ -55,6 +56,7 @@ export class PlatformAdminGuard implements CanActivate {
         id: true,
         email: true,
         role: true,
+        twoFactorEnabled: true,
       },
     });
 
@@ -67,6 +69,13 @@ export class PlatformAdminGuard implements CanActivate {
         'Access denied: Platform admin privileges required',
       );
     }
+
+    // S6: platform admins must have 2FA enabled (403 MFA_REQUIRED).
+    assertStaffMfa({
+      role: user.role,
+      twoFactorEnabled: user.twoFactorEnabled,
+      path: requestPath(request),
+    });
 
     // Set request context
     request.userId = user.id;

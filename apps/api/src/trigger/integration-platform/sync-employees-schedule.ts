@@ -1,6 +1,7 @@
 import { getManifest } from '@trycompai/integration-platform';
 import { db } from '@db';
 import { logger, schedules } from '@trigger.dev/sdk';
+import { buildServiceTokenHeaders } from '@trycompai/utils/service-token';
 
 const API_BASE_URL = process.env.BASE_URL || 'http://localhost:3333';
 
@@ -223,8 +224,11 @@ async function syncGoogleWorkspace({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-service-token': process.env.SERVICE_TOKEN_TRIGGER!,
-      'x-organization-id': organizationId,
+      ...buildServiceTokenHeaders({
+        serviceToken: process.env.SERVICE_TOKEN_TRIGGER ?? '',
+        organizationId,
+        signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+      }),
     },
   });
 
@@ -262,8 +266,11 @@ async function syncRippling({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-service-token': process.env.SERVICE_TOKEN_TRIGGER!,
-      'x-organization-id': organizationId,
+      ...buildServiceTokenHeaders({
+        serviceToken: process.env.SERVICE_TOKEN_TRIGGER ?? '',
+        organizationId,
+        signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+      }),
     },
   });
 
@@ -299,8 +306,11 @@ async function syncJumpCloud({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-service-token': process.env.SERVICE_TOKEN_TRIGGER!,
-      'x-organization-id': organizationId,
+      ...buildServiceTokenHeaders({
+        serviceToken: process.env.SERVICE_TOKEN_TRIGGER ?? '',
+        organizationId,
+        signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+      }),
     },
   });
 
@@ -338,8 +348,11 @@ async function syncDynamicProvider({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-service-token': process.env.SERVICE_TOKEN_TRIGGER!,
-      'x-organization-id': organizationId,
+      ...buildServiceTokenHeaders({
+        serviceToken: process.env.SERVICE_TOKEN_TRIGGER ?? '',
+        organizationId,
+        signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+      }),
     },
   });
 

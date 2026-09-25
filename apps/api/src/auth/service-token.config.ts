@@ -3,6 +3,11 @@ import { timingSafeEqual } from 'crypto';
 export interface ServiceDefinition {
   /** Environment variable holding the token */
   envVar: string;
+  /**
+   * Environment variable holding the HMAC secret used to sign the org claim
+   * (x-org-signature). See packages/utils/src/service-token.ts.
+   */
+  signingSecretEnvVar: string;
   /** Human-readable name for audit logs */
   name: string;
   /** Allowed 'resource:action' pairs */
@@ -16,6 +21,7 @@ export interface ServiceDefinition {
 export const SERVICE_DEFINITIONS: Record<string, ServiceDefinition> = {
   trigger: {
     envVar: 'SERVICE_TOKEN_TRIGGER',
+    signingSecretEnvVar: 'SERVICE_TOKEN_SIGNING_SECRET_TRIGGER',
     name: 'Trigger.dev Workers',
     permissions: [
       'integration:read',
@@ -27,11 +33,13 @@ export const SERVICE_DEFINITIONS: Record<string, ServiceDefinition> = {
   },
   portal: {
     envVar: 'SERVICE_TOKEN_PORTAL',
+    signingSecretEnvVar: 'SERVICE_TOKEN_SIGNING_SECRET_PORTAL',
     name: 'Portal App',
     permissions: ['training:read', 'training:update'],
   },
   trust: {
     envVar: 'SERVICE_TOKEN_TRUST',
+    signingSecretEnvVar: 'SERVICE_TOKEN_SIGNING_SECRET_TRUST',
     name: 'Trust Portal',
     permissions: [
       'trust:read',
@@ -79,4 +87,14 @@ export function resolveServiceByName(
     if (definition.name === name) return definition;
   }
   return null;
+}
+
+/**
+ * Whether every service-token request must carry a valid signed org claim.
+ * Defaults to false so callers outside this repo (the trust site) keep working
+ * until they sign their requests. A signature that IS present is always
+ * verified, regardless of this flag.
+ */
+export function isOrgSignatureRequired(): boolean {
+  return process.env.SERVICE_TOKEN_REQUIRE_ORG_SIGNATURE === 'true';
 }

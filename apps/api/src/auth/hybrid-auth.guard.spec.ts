@@ -54,6 +54,7 @@ const mockResolveServiceByToken = jest.fn();
 jest.mock('./service-token.config', () => ({
   resolveServiceByToken: (...args: unknown[]) =>
     mockResolveServiceByToken(...args),
+  isOrgSignatureRequired: () => false,
 }));
 
 // Mock @trycompai/auth — the app-access gate reads BUILT_IN_ROLE_PERMISSIONS to
@@ -507,7 +508,7 @@ describe('HybridAuthGuard — session path platform-admin flag', () => {
 
   const run = async (role: string) => {
     mockGetSession.mockResolvedValue({
-      user: { id: 'usr_s', email: 's@msp.com', role },
+      user: { id: 'usr_s', email: 's@msp.com', role, twoFactorEnabled: true },
       session: { id: 'ses_1', activeOrganizationId: 'org_1' },
     });
     mockMemberFindFirst.mockResolvedValue({

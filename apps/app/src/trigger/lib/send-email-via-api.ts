@@ -1,6 +1,7 @@
 import { render } from '@react-email/render';
 import { logger } from '@trigger.dev/sdk';
 import type { ReactElement } from 'react';
+import { buildServiceTokenHeaders } from '@trycompai/utils/service-token';
 
 const getApiBaseUrl = () =>
   process.env.NEXT_PUBLIC_API_URL ||
@@ -47,10 +48,11 @@ export async function sendEmailViaApi(
     headers: {
       'Content-Type': 'application/json',
       ...(token
-        ? {
-            'x-service-token': token,
-            'x-organization-id': params.organizationId,
-          }
+        ? buildServiceTokenHeaders({
+            serviceToken: token,
+            organizationId: params.organizationId,
+            signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+          })
         : {}),
     },
     body: JSON.stringify({
@@ -93,10 +95,11 @@ export async function sendBatchEmailViaApi(
     headers: {
       'Content-Type': 'application/json',
       ...(token
-        ? {
-            'x-service-token': token,
-            'x-organization-id': params.organizationId,
-          }
+        ? buildServiceTokenHeaders({
+            serviceToken: token,
+            organizationId: params.organizationId,
+            signingSecret: process.env.SERVICE_TOKEN_SIGNING_SECRET_TRIGGER,
+          })
         : {}),
     },
     body: JSON.stringify({ emails: params.emails }),

@@ -199,6 +199,7 @@ describe('IsmsController', () => {
     mockIsmsService.ensureSetup.mockResolvedValue({ success: true });
     mockResolveServiceByName.mockReturnValue({
       envVar: 'SERVICE_TOKEN_X',
+      signingSecretEnvVar: 'SERVICE_TOKEN_SIGNING_SECRET_X',
       name: 'X',
       permissions: ['evidence:update'],
     });
