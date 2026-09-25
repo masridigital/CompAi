@@ -128,6 +128,16 @@ describe('HaloOutboxService', () => {
     expect(mockDb.haloTicketLink.update.mock.calls[0][0].data.haloTicketId).toBe(777);
   });
 
+  it('searches first when the payload reuses a ref token from a dead create', async () => {
+    const client = fakeClient({
+      searchTickets: jest.fn().mockResolvedValue([{ id: 778, summary: '[CompAI] x [CAI-AAAAAAAA]' }]),
+    });
+    const create = event({ payload: { summary: 's [CAI-AAAAAAAA]', details: 'd', searchFirst: true } });
+    await expect(service.processEvent({ event: create as never, client, now: NOW })).resolves.toBe('done');
+    expect(client.createTicket).not.toHaveBeenCalled();
+    expect(mockDb.haloTicketLink.update.mock.calls[0][0].data.haloTicketId).toBe(778);
+  });
+
   it('does not treat a 4xx rejection as ambiguous', async () => {
     const client = fakeClient({
       createTicket: jest.fn().mockRejectedValue(new HaloApiError({ status: 400, path: '/Tickets', body: 'bad' })),

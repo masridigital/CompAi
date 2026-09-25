@@ -136,6 +136,7 @@ describe('buildHaloCheckResults', () => {
 
     expect(results[0]).toMatchObject({
       checkId: 'mfa',
+      connectionId: 'icn_1',
       passed: false,
       severity: 'medium',
       remediation: 'Enable MFA',

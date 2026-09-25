@@ -129,7 +129,12 @@ describe('HaloDigestService', () => {
       entityType: 'digest',
     });
     const event = mockDb.haloOutboxEvent.create.mock.calls[0][0].data;
-    expect(event).toMatchObject({ kind: 'create_ticket', linkId: 'htl_new', payload: { priorityId: 4 } });
+    // resolvedStatusId lets a superseded digest whose create is already processing still close.
+    expect(event).toMatchObject({
+      kind: 'create_ticket',
+      linkId: 'htl_new',
+      payload: { priorityId: 4, resolvedStatusId: 9 },
+    });
     expect(event.payload.summary).toContain('1 item due');
   });
 

@@ -23,6 +23,8 @@ type AlertSignalDecision = 'none' | 'create' | 'note' | 'reopen' | 'resolve' | '
 
 export interface CheckResultInput {
   organizationId: string;
+  /** Integration connection that ran the check (two accounts of one provider alert separately). */
+  connectionId: string;
   checkId: string;
   checkName: string;
   passed: boolean;
@@ -75,7 +77,9 @@ export class HaloAlertService {
       trigger: 'integration_check_failed',
       entityType: 'check',
       entityId: input.taskId,
-      dedupKey: `integration_check_failed:${input.checkId}`,
+      dedupKey: `integration_check_failed:${input.connectionId}:${input.checkId}`,
+      // Links created before the key included the connection are adopted.
+      legacyDedupKey: `integration_check_failed:${input.checkId}`,
       failing: !input.passed,
       severity,
       priorityFor: (map) => (severity === 'high' || severity === 'critical' ? map.high : map.medium),

@@ -101,7 +101,11 @@ async function executeCreate(ctx: ExecuteContext): Promise<void> {
   if (link.haloTicketId !== null && link.state !== 'pending_create') return;
 
   const payload = CreateTicketPayloadSchema.parse(ctx.event.payload);
-  const ticketId = await createOrAdopt({ ctx, payload, searchFirst: previousWasAmbiguous(ctx.event) });
+  const ticketId = await createOrAdopt({
+    ctx,
+    payload,
+    searchFirst: previousWasAmbiguous(ctx.event) || payload.searchFirst === true,
+  });
 
   const current = await db.haloTicketLink.findUnique({ where: { id: link.id }, select: { state: true } });
   const resolvedMeanwhile = current?.state === 'resolved';
