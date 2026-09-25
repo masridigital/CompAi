@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { FindingSeverity } from '@trycompai/integration-platform';
 import { HaloAlertService, type CheckResultInput } from './halopsa-alert.service';
+import { loadHaloOrgConnection } from './halopsa-connection';
 import { resolveNonCompliantSince } from './halopsa-device-tracker';
 
 /**
@@ -82,6 +83,12 @@ export async function haloOnFindingStatusChanged({
   if (previousStatus === 'closed') await haloOnFindingCreated({ organizationId, finding });
 }
 
+/**
+ * Device check-ins are frequent, so bail out before any KV/marker work unless
+ * the org has an active halopsa connection. A noncompliant device also needs
+ * the device_noncompliant trigger; a compliant one always goes through so an
+ * open ticket is still resolved after the trigger was switched off.
+ */
 export async function haloOnDeviceCompliance(input: {
   organizationId: string;
   deviceId: string;
@@ -90,6 +97,10 @@ export async function haloOnDeviceCompliance(input: {
   failingChecks?: string[];
 }): Promise<void> {
   await safely(`device ${input.deviceId}`, async () => {
+    const halo = await loadHaloOrgConnection(input.organizationId);
+    if (!halo) return;
+    if (!input.compliant && !halo.settings.enabledTriggers.includes('device_noncompliant')) return;
+
     const nonCompliantSince = await resolveNonCompliantSince({
       deviceId: input.deviceId,
       compliant: input.compliant,
