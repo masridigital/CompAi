@@ -104,7 +104,8 @@ export const ROUTE_PERMISSIONS: Record<string, Array<{ resource: string; action:
   'settings/context-hub': [{ resource: 'evidence', action: 'read' }],
   'settings/api-keys': [{ resource: 'apiKey', action: 'read' }],
   'settings/secrets': [{ resource: 'secret', action: 'read' }],
-  'settings/roles': [{ resource: 'member', action: 'read' }],
+  // Matches the API: GET /v1/roles requires ac:read.
+  'settings/roles': [{ resource: 'ac', action: 'read' }],
   'settings/notifications': [{ resource: 'organization', action: 'update' }],
   'settings/browser-connection': [{ resource: 'integration', action: 'read' }],
   // settings/user is intentionally not listed — every user can access their own preferences

@@ -1,4 +1,9 @@
 import { AttachmentsService } from '@/attachments/attachments.service';
+import {
+  requireEvidenceDeleteAccess,
+  requireJwtUser,
+  requirePrivilegedEvidenceAccess,
+} from './evidence-form-access';
 import type { AuthContext } from '@/auth/types';
 import { db, EvidenceFormType as DbEvidenceFormType } from '@db';
 import {
@@ -53,8 +58,6 @@ const formSettingSchema = z.object({
   isNotRelevant: z.boolean(),
 });
 
-const EVIDENCE_FORM_REVIEWER_ROLES = ['owner', 'admin', 'auditor'] as const;
-const EVIDENCE_FORM_DELETE_ROLES = ['owner', 'admin'] as const;
 const MAX_UPLOAD_FILE_SIZE_BYTES = 100 * 1024 * 1024;
 const MAX_UPLOAD_BASE64_LENGTH = Math.ceil(MAX_UPLOAD_FILE_SIZE_BYTES / 3) * 4;
 
@@ -143,52 +146,6 @@ export class EvidenceFormsService {
     private readonly timelinesService: TimelinesService,
     private readonly evidenceFormsNotifier: EvidenceFormsNotifierService,
   ) {}
-
-  private requireJwtUser(authContext: AuthContext): string {
-    if (authContext.isApiKey || authContext.authType === 'api-key') {
-      throw new UnauthorizedException(
-        'This endpoint requires JWT authentication and does not support API key authentication',
-      );
-    }
-
-    if (!authContext.userId) {
-      throw new UnauthorizedException('Authenticated user session is required');
-    }
-
-    return authContext.userId;
-  }
-
-  private requirePrivilegedEvidenceAccess(authContext: AuthContext): string {
-    const userId = this.requireJwtUser(authContext);
-    const roles = authContext.userRoles ?? [];
-    const hasRequiredRole = EVIDENCE_FORM_REVIEWER_ROLES.some((role) =>
-      roles.includes(role),
-    );
-
-    if (!hasRequiredRole) {
-      throw new UnauthorizedException(
-        `Access denied. Required one of roles: ${EVIDENCE_FORM_REVIEWER_ROLES.join(', ')}`,
-      );
-    }
-
-    return userId;
-  }
-
-  private requireEvidenceDeleteAccess(authContext: AuthContext): string {
-    const userId = this.requireJwtUser(authContext);
-    const roles = authContext.userRoles ?? [];
-    const canDelete = EVIDENCE_FORM_DELETE_ROLES.some((role) =>
-      roles.includes(role),
-    );
-
-    if (!canDelete) {
-      throw new UnauthorizedException(
-        `Delete denied. Required one of roles: ${EVIDENCE_FORM_DELETE_ROLES.join(', ')}`,
-      );
-    }
-
-    return userId;
-  }
 
   private decodeBase64File(fileData: string): Buffer {
     const normalized = fileData.trim();
@@ -356,7 +313,10 @@ export class EvidenceFormsService {
     offset?: string;
   }) {
     const { organizationId, formType } = params;
-    this.requirePrivilegedEvidenceAccess(params.authContext);
+    await requirePrivilegedEvidenceAccess({
+      organizationId: params.organizationId,
+      authContext: params.authContext,
+    });
 
     const parsedType = evidenceFormTypeSchema.safeParse(formType);
     if (!parsedType.success) {
@@ -426,7 +386,10 @@ export class EvidenceFormsService {
     formType: string;
     submissionId: string;
   }) {
-    this.requirePrivilegedEvidenceAccess(params.authContext);
+    await requirePrivilegedEvidenceAccess({
+      organizationId: params.organizationId,
+      authContext: params.authContext,
+    });
 
     const parsedType = evidenceFormTypeSchema.safeParse(params.formType);
     if (!parsedType.success) {
@@ -480,7 +443,10 @@ export class EvidenceFormsService {
     formType: string;
     submissionId: string;
   }) {
-    this.requireEvidenceDeleteAccess(params.authContext);
+    await requireEvidenceDeleteAccess({
+      organizationId: params.organizationId,
+      authContext: params.authContext,
+    });
 
     const parsedType = evidenceFormTypeSchema.safeParse(params.formType);
     if (!parsedType.success) {
@@ -750,7 +716,10 @@ export class EvidenceFormsService {
     formType: string;
     authContext: AuthContext;
   }) {
-    this.requirePrivilegedEvidenceAccess(params.authContext);
+    await requirePrivilegedEvidenceAccess({
+      organizationId: params.organizationId,
+      authContext: params.authContext,
+    });
 
     const parsedType = evidenceFormTypeSchema.safeParse(params.formType);
     if (!parsedType.success) {
@@ -849,9 +818,11 @@ export class EvidenceFormsService {
       throw new BadRequestException('Unsupported form type');
     }
 
-    const reviewerUserId = this.requirePrivilegedEvidenceAccess(
-      params.authContext,
-    );
+    const reviewerUserId = await requirePrivilegedEvidenceAccess({
+      organizationId: params.organizationId,
+      authContext: params.authContext,
+      customRoleAction: 'update',
+    });
 
     const parsed = reviewSchema.safeParse(params.payload);
     if (!parsed.success) {
@@ -916,7 +887,7 @@ export class EvidenceFormsService {
     authContext: AuthContext;
     formType?: string;
   }) {
-    const userId = this.requireJwtUser(params.authContext);
+    const userId = requireJwtUser(params.authContext);
 
     const where: Record<string, unknown> = {
       organizationId: params.organizationId,
@@ -954,7 +925,7 @@ export class EvidenceFormsService {
     organizationId: string;
     authContext: AuthContext;
   }) {
-    const userId = this.requireJwtUser(params.authContext);
+    const userId = requireJwtUser(params.authContext);
 
     const count = await db.evidenceSubmission.count({
       where: {

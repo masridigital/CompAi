@@ -311,7 +311,12 @@ function AppShellWrapperContent({
               {isAdminActive && isAdmin ? (
                 <AdminSidebar orgId={organization.id} />
               ) : isSettingsActive ? (
-                <SettingsSidebar orgId={organization.id} showBrowserTab={isWebAutomationsEnabled} showBillingTab={isSecurityEnabled} />
+                <SettingsSidebar
+                  orgId={organization.id}
+                  permissions={permissions}
+                  showBrowserTab={isWebAutomationsEnabled}
+                  showBillingTab={isSecurityEnabled}
+                />
               ) : isTrustActive ? (
                 <TrustSidebar orgId={organization.id} />
               ) : isSecurityActive && isSecurityEnabled ? (

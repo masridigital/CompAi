@@ -1,3 +1,6 @@
+// better-auth ships ESM that Jest cannot parse; built-in roles short-circuit before any lookup.
+jest.mock('@trycompai/auth', () => ({ BUILT_IN_ROLE_PERMISSIONS: {} }));
+
 import type { AuthContext } from '@/auth/types';
 import { EvidenceFormsService } from './evidence-forms.service';
 import type { AttachmentsService } from '@/attachments/attachments.service';
