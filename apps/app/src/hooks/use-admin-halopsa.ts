@@ -121,8 +121,18 @@ export async function bindHaloClient({
   });
 }
 
-export async function createOrgFromHaloClient({ haloClientId }: { haloClientId: number }) {
-  return api.post<{ organizationId: string }>(`/v1/admin/halopsa/clients/${haloClientId}/create-org`, {});
+export async function createOrgFromHaloClient({
+  haloClientId,
+  ownerEmail,
+}: {
+  haloClientId: number;
+  /** Invited as owner; the acting platform admin joins as admin. */
+  ownerEmail?: string;
+}) {
+  return api.post<{ organizationId: string; ownerInvitationId: string | null }>(
+    `/v1/admin/halopsa/clients/${haloClientId}/create-org`,
+    ownerEmail ? { ownerEmail } : {},
+  );
 }
 
 export async function issueHaloWebhookToken({ connectionId }: { connectionId: string }) {

@@ -108,13 +108,37 @@ describe('HaloPSA admin page', () => {
     expect(screen.getByText('Alpha Ltd')).toBeInTheDocument();
   });
 
-  it('creates an org from a Halo client', async () => {
+  it('creates an org from a Halo client without an owner email', async () => {
     render(<ClientMappingTable />, { wrapper });
     await waitFor(() => expect(screen.getByText('Beta')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /create org/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /create organization/i }));
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/v1/admin/halopsa/clients/11/create-org', {}),
     );
+  });
+
+  it('invites the owner by email when creating an org', async () => {
+    render(<ClientMappingTable />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Beta')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /create org/i }));
+    fireEvent.change(await screen.findByLabelText(/owner email/i), { target: { value: 'owner@beta.io' } });
+    fireEvent.click(screen.getByRole('button', { name: /create organization/i }));
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/v1/admin/halopsa/clients/11/create-org', {
+        ownerEmail: 'owner@beta.io',
+      }),
+    );
+  });
+
+  it('rejects an invalid owner email', async () => {
+    render(<ClientMappingTable />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Beta')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /create org/i }));
+    fireEvent.change(await screen.findByLabelText(/owner email/i), { target: { value: 'not-an-email' } });
+    fireEvent.click(screen.getByRole('button', { name: /create organization/i }));
+    expect(await screen.findByText('Enter a valid email')).toBeInTheDocument();
+    expect(mockPost).not.toHaveBeenCalled();
   });
 
   it('binds a client to the suggested org', async () => {
