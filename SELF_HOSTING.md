@@ -32,6 +32,21 @@ For a functional deployment:
 - When enabled, organizations are automatically approved and bypass the payment/booking flow
 - `STRIPE_SECRET_KEY` is not required for self-hosted instances
 
+### Custom Domain
+
+The API defaults to the hosted Comp AI domains (`*.trycomp.ai`). On your own domain, set these in the API environment, or login fails because the session cookie does not reach the app:
+
+| Variable | Example | Purpose |
+|---|---|---|
+| `BASE_URL` | `https://api.compliance.example.com` | API URL (better-auth base URL) |
+| `AUTH_COOKIE_DOMAIN` | `.compliance.example.com` | Session cookie scope. Must cover the `BASE_URL` host. |
+| `AUTH_TRUSTED_ORIGINS` | `https://compliance.example.com,https://employee.compliance.example.com` | Exact frontend origins |
+| `AUTH_TRUSTED_ORIGIN_SUFFIXES` | `.compliance.example.com` | Trusted HTTPS subdomains. Replaces the `*.trycomp.ai` / `*.trust.inc` defaults. |
+
+In the app and portal, set `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_PORTAL_URL` and `NEXT_PUBLIC_BETTER_AUTH_URL` (the API URL) to the same hosts.
+
+Keep `AUTH_COOKIE_DOMAIN` as narrow as possible. Every host under it receives the session cookie, so never use a parent domain that also serves third-party or unrelated hosts.
+
 ### Prerequisites
 
 - Docker Desktop or Docker Engine

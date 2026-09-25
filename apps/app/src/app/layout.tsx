@@ -16,8 +16,10 @@ import { Providers } from './providers';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.trycomp.ai';
+
 export const metadata: Metadata = {
-  metadataBase: new URL('https://app.trycomp.ai'),
+  metadataBase: new URL(APP_URL),
   title: 'Comp AI | Automate SOC 2, ISO 27001 and GDPR compliance with AI.',
   description: 'Automate SOC 2, ISO 27001 and GDPR compliance with AI.',
   twitter: {
@@ -39,7 +41,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Comp AI | Automate SOC 2, ISO 27001 and GDPR compliance with AI.',
     description: 'Automate SOC 2, ISO 27001 and GDPR compliance with AI.',
-    url: 'https://app.trycomp.ai',
+    url: APP_URL,
     siteName: 'Comp AI',
     images: [
       {

@@ -14,6 +14,16 @@ const DEFAULT_TRUSTED_ORIGINS = [
   'https://framework-editor.trycomp.ai',
 ];
 
+// Hostname suffixes whose HTTPS subdomains are trusted. Override with
+// AUTH_TRUSTED_ORIGIN_SUFFIXES on self-hosted deployments so the hosted
+// Comp AI domains are not trusted by your API.
+const DEFAULT_TRUSTED_ORIGIN_SUFFIXES = [
+  '.trycomp.ai',
+  '.staging.trycomp.ai',
+  '.trust.inc',
+];
+const DEFAULT_TRUSTED_ORIGIN_HOSTS = ['trust.inc'];
+
 const COMP_EXTENSION_ALLOWED_ROUTES = [
   { method: 'GET', path: '/api/auth/get-session' },
   { method: 'GET', path: '/v1/auth/me' },
@@ -37,6 +47,23 @@ function normalizePath(path: string): string {
 export function getTrustedOrigins(): string[] {
   const origins = parseOriginList(process.env.AUTH_TRUSTED_ORIGINS);
   return origins.length > 0 ? origins : [...DEFAULT_TRUSTED_ORIGINS];
+}
+
+function getTrustedOriginSuffixes(): string[] {
+  const suffixes = parseOriginList(process.env.AUTH_TRUSTED_ORIGIN_SUFFIXES)
+    .map((suffix) => suffix.toLowerCase())
+    .map((suffix) => (suffix.startsWith('.') ? suffix : `.${suffix}`))
+    // A bare TLD (".com") would trust every site on it.
+    .filter((suffix) => suffix.split('.').filter(Boolean).length >= 2);
+  return suffixes.length > 0 ? suffixes : [...DEFAULT_TRUSTED_ORIGIN_SUFFIXES];
+}
+
+function getTrustedOriginHosts(): string[] {
+  // With custom suffixes, only their subdomains are trusted; list the apex
+  // itself in AUTH_TRUSTED_ORIGINS if it serves a frontend.
+  return process.env.AUTH_TRUSTED_ORIGIN_SUFFIXES?.trim()
+    ? []
+    : [...DEFAULT_TRUSTED_ORIGIN_HOSTS];
 }
 
 export function getCompExtensionTrustedOrigins(): string[] {
@@ -89,14 +116,13 @@ export function isStaticTrustedOrigin(origin: string): boolean {
 
   try {
     const url = new URL(origin);
-    // Only the explicit DEFAULT_TRUSTED_ORIGINS entries above may be plain
-    // HTTP (localhost). The wildcard suffix match is HTTPS-only.
+    // Only the explicit trusted origins list may be plain HTTP (localhost).
+    // The wildcard suffix match is HTTPS-only.
     if (url.protocol !== 'https:') return false;
+    const hostname = url.hostname.toLowerCase();
     return (
-      url.hostname.endsWith('.trycomp.ai') ||
-      url.hostname.endsWith('.staging.trycomp.ai') ||
-      url.hostname.endsWith('.trust.inc') ||
-      url.hostname === 'trust.inc'
+      getTrustedOriginSuffixes().some((suffix) => hostname.endsWith(suffix)) ||
+      getTrustedOriginHosts().includes(hostname)
     );
   } catch {
     return false;

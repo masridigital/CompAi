@@ -1,5 +1,6 @@
 import { Header } from '@/components/header';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
+import { env } from '@/env.mjs';
 import { serverApi } from '@/lib/api-server';
 import type { OrganizationFromMe } from '@/types';
 import { auth } from '@/utils/auth';
@@ -36,8 +37,8 @@ export default async function NoAccess() {
         <div className="flex flex-col text-center">
           <p>
             Your current role doesn&apos;t have access to the app. If you&apos;re looking for the employee portal, go to{' '}
-            <Link href="https://portal.trycomp.ai" className="text-primary underline">
-              portal.trycomp.ai
+            <Link href={env.NEXT_PUBLIC_PORTAL_URL} className="text-primary underline">
+              {new URL(env.NEXT_PUBLIC_PORTAL_URL).host}
             </Link>
             .
           </p>

@@ -27,6 +27,7 @@ import {
   resolveMicrosoftEmail,
   type MicrosoftEmailClaims,
 } from './microsoft-email';
+import { getCookieDomain } from './cookie-domain';
 import {
   getBetterAuthTrustedOrigins,
   isStaticTrustedOrigin,
@@ -45,21 +46,6 @@ export {
 } from './origin-policy';
 
 const MAGIC_LINK_EXPIRES_IN_SECONDS = 60 * 60; // 1 hour
-
-/**
- * Determine the cookie domain based on environment.
- */
-function getCookieDomain(): string | undefined {
-  const baseUrl = process.env.BASE_URL || '';
-
-  if (baseUrl.includes('staging.trycomp.ai')) {
-    return '.staging.trycomp.ai';
-  }
-  if (baseUrl.includes('trycomp.ai')) {
-    return '.trycomp.ai';
-  }
-  return undefined;
-}
 
 // ── Custom domain lookup via Redis cache ─────────────────────────────────────
 
@@ -116,7 +102,8 @@ async function getCustomDomains(): Promise<Set<string>> {
 /**
  * Check if an origin is trusted. Checks (in order):
  * 1. Static trusted origins list
- * 2. *.trycomp.ai / *.trust.inc subdomains
+ * 2. Trusted origin suffixes (AUTH_TRUSTED_ORIGIN_SUFFIXES, or the
+ *    *.trycomp.ai / *.trust.inc defaults)
  * 3. Published custom domains from the DB (cached in Redis, TTL 5 min)
  */
 export async function isTrustedOrigin(origin: string): Promise<boolean> {

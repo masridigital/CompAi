@@ -97,11 +97,18 @@ The employee portal does not use `portal.compliance.masri.tech`. That name is to
 - Set the cookie domain to `.compliance.masri.tech`. It covers the app, API, and employee portal.
 - **Never set it to `.masri.tech`.** The browser then sends the CompAI session cookie to `portal.masri.tech` (Halo's servers) and to every other `masri.tech` host. A compromise of any of those hosts would expose CompAI sessions for all clients.
 
-Required code changes (small, no structural change):
+**Status: implemented** (`apps/api/src/auth/cookie-domain.ts`, `apps/api/src/auth/origin-policy.ts`). Set these in the API env for this deployment:
 
-1. `apps/api/src/auth/auth.server.ts:52-61`: `getCookieDomain()` knows only `trycomp.ai`. For `compliance.masri.tech` it returns `undefined`, so cookies become host-only on the API and the app cannot read the session. Read `AUTH_COOKIE_DOMAIN` from env first, then fall back to the current logic.
-2. `apps/api/src/auth/origin-policy.ts:7-14` and `:96-97`: the static origins and the `.endsWith('.trycomp.ai')` rule are hardcoded. Add `TRUSTED_ORIGINS` (comma list) and `TRUSTED_ORIGIN_SUFFIX` (`.compliance.masri.tech`) from env.
-3. Add tests: cookie domain from env, origin allowed for `https://compliance.masri.tech`, origin rejected for `https://portal.masri.tech`.
+```env
+BASE_URL="https://api.compliance.masri.tech"
+AUTH_COOKIE_DOMAIN=".compliance.masri.tech"
+AUTH_TRUSTED_ORIGINS="https://compliance.masri.tech,https://employee.compliance.masri.tech"
+AUTH_TRUSTED_ORIGIN_SUFFIXES=".compliance.masri.tech"
+```
+
+- The API refuses to start if `AUTH_COOKIE_DOMAIN` does not cover the `BASE_URL` host, or is a bare TLD.
+- With `AUTH_TRUSTED_ORIGIN_SUFFIXES` set, the hosted `*.trycomp.ai` and `*.trust.inc` origins are no longer trusted by your API.
+- `https://portal.masri.tech` (Halo) is not trusted.
 
 ### 3.3 DNS and edge (Cloudflare)
 
